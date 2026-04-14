@@ -52,19 +52,19 @@ UAP 是一款**纯客户端桌面应用**，旨在帮助用户对复杂系统进
 | 任务调度器 | ✅ | 定时预测任务执行 |
 | 主入口与API | ✅ | PyWebView 集成 |
 | 前端基础结构 | ✅ | HTML/CSS/JS 界面 |
+| LLM集成 | ✅ | Ollama客户端、模型提取器 |
 
 ### 🔄 进行中
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| LLM集成 | 🔄 | Ollama连接、模型提取 |
-| 预测引擎 | 🔄 | Koopman/PESM/PINN实现 |
 | 向量检索 | 🔄 | sqlite-vss集成 |
 
 ### ⏳ 待开发
 
 | 模块 | 优先级 | 说明 |
 |------|--------|------|
+| 预测引擎 | ✅ | Koopman/Monte Carlo/Simulation 已完成 |
 | 文档导入解析 | P1 | PDF/Word/Markdown解析 |
 | 预测可视化 | P1 | 轨迹图、异常标注 |
 | 预测结果分析 | P2 | 熵值计算、湍流度评估 |
@@ -205,13 +205,17 @@ src/
 │   ├── __init__.py
 │   ├── api.py                # JavaScript API封装
 │   ├── config.py             # 配置管理
+│   ├── llm/
+│   │   ├── __init__.py
+│   │   ├── ollama_client.py  # Ollama API客户端
+│   │   └── model_extractor.py # 系统模型提取器
 │   ├── project/
 │   │   ├── models.py         # 核心数据模型
 │   │   └── project_store.py  # 存储模块
 │   ├── scheduler/
 │   │   └── task_scheduler.py # 任务调度器
 │   └── service/
-│       ├── project_service.py    # 项目服务
+│       ├── project_service.py    # 项目服务（含LLM集成）
 │       └── prediction_service.py # 预测服务
 └── web/                      # 前端资源（自动生成）
     ├── index.html
