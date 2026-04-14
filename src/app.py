@@ -76,6 +76,7 @@ class UAPApplication:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UAP - 复杂系统预测智能体</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="cards.css">
 </head>
 <body>
     <div class="app-container">
@@ -287,6 +288,7 @@ class UAPApplication:
     </div>
 
     <script src="app.js"></script>
+    <script src="cards.js"></script>
 </body>
 </html>
 '''
@@ -1198,6 +1200,46 @@ class UAPApp {
         return div.innerHTML;
     }
 }
+
+// 初始化卡片管理器
+window.cardManager = new CardManagerUI();
+window.cardManager.onCardResponse = (response) => {
+    console.log('Card response:', response);
+    if (response.card_type === 'model_confirm') {
+        if (response.selected_option_id === 'confirm') {
+            window.uapApp.showToast('success', '模型已确认', '系统模型已保存');
+        }
+    } else if (response.card_type === 'prediction_execution') {
+        if (response.selected_option_id === 'execute') {
+            window.uapApp.runPredictionNow();
+        }
+    }
+};
+
+
+
+    // 卡片相关方法
+    showMethodSelectionCard() {
+        if (!this.currentProject) {
+            alert('请先选择一个项目');
+            return;
+        }
+        window.cardManager.showMethodSelectionCard(this.currentProject);
+    }
+    
+    showModelConfirmCard(variables, relations, constraints) {
+        if (!this.currentProject) return;
+        window.cardManager.showModelConfirmCard(
+            this.currentProject, variables, relations, constraints
+        );
+    }
+    
+    showToast(type, title, content) {
+        const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+        if (window.cardManager) {
+            window.cardManager.showToast(icon, title, content);
+        }
+    }
 
 // 启动应用
 window.addEventListener('DOMContentLoaded', () => {

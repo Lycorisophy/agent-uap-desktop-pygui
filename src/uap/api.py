@@ -16,6 +16,8 @@ from uap.project.project_store import ProjectStore
 from uap.service.project_service import ProjectService
 from uap.service.prediction_service import PredictionService
 from uap.scheduler import TaskScheduler, SchedulerConfig
+from uap.card import CardManager, CardGenerator, CardContext, CardResponse
+from uap.skill import get_atomic_skills_library
 
 
 class UAPApi:
@@ -34,6 +36,13 @@ class UAPApi:
         self.project_service = ProjectService(self.project_store, self.config)
         self.prediction_service = PredictionService(self.project_store, self.config)
         self.scheduler = self._init_scheduler()
+        
+        # 卡片系统初始化
+        self.card_manager = CardManager(default_timeout=300)
+        self.card_generator = CardGenerator()
+        
+        # 原子技能库
+        self.atomic_skills = get_atomic_skills_library()
 
     def _init_scheduler(self) -> TaskScheduler:
         """初始化调度器"""
@@ -385,6 +394,95 @@ class UAPApi:
         """
         # 这里可以实现配置热更新
         return {"success": True, "message": "Config updated"}
+
+
+    # ==================== 卡片确认 API ====================
+
+    def get_pending_card(self, project_id: str) -> Optional[dict]:
+        """获取项目的待处理卡片"""
+        card = self.card_manager.get_pending_card_for_project(project_id)
+        return card.to_dict() if card else None
+
+    def get_all_pending_cards(self) -> list[dict]:
+        """获取所有待处理卡片"""
+        cards = self.card_manager.get_pending_cards()
+        return [card.to_dict() for card in cards]
+
+    def submit_card_response(self, card_id: str, selected_option_id: str) -> dict:
+        """提交卡片响应"""
+        response = CardResponse(
+            card_id=card_id,
+            selected_option_id=selected_option_id
+        )
+        success = self.card_manager.submit_response(response)
+        return {"success": success, "card_id": card_id}
+
+    def dismiss_card(self, card_id: str) -> dict:
+        """关闭卡片"""
+        success = self.card_manager.dismiss_card(card_id, "user_dismissed")
+        return {"success": success, "card_id": card_id}
+
+    def create_model_confirm_card(
+        self,
+        project_id: str,
+        variables: list[dict],
+        relations: list[dict],
+        constraints: list[dict]
+    ) -> dict:
+        """创建模型确认卡片"""
+        context = CardContext(project_id=project_id)
+        card = self.card_generator.generate_model_confirm_card(
+            context, variables, relations, constraints
+        )
+        self.card_manager.create_card(card)
+        return {"success": True, "card": card.to_dict()}
+
+    def create_prediction_method_card(self, project_id: str) -> dict:
+        """创建预测方法选择卡片"""
+        context = CardContext(project_id=project_id, task_type="prediction")
+        methods = self.card_generator.get_default_prediction_methods()
+        card = self.card_generator.generate_prediction_method_card(context, methods)
+        self.card_manager.create_card(card)
+        return {"success": True, "card": card.to_dict()}
+
+    def create_prediction_execution_card(
+        self,
+        project_id: str,
+        method_name: str,
+        horizon: int,
+        frequency: int
+    ) -> dict:
+        """创建预测执行确认卡片"""
+        context = CardContext(project_id=project_id, task_type="prediction")
+        card = self.card_generator.generate_prediction_execution_card(
+            context, method_name, horizon, frequency
+        )
+        self.card_manager.create_card(card)
+        return {"success": True, "card": card.to_dict()}
+
+    # ==================== 技能 API ====================
+
+    def get_atomic_skills(self, category: Optional[str] = None) -> list[dict]:
+        """获取原子技能库"""
+        if category:
+            from uap.skill.atomic_skills import get_skills_by_category, SkillCategory
+            try:
+                cat = SkillCategory(category)
+                skills = get_skills_by_category(cat)
+                return [meta.to_dict() for meta in skills.values()]
+            except ValueError:
+                return []
+        return [meta.to_dict() for meta in self.atomic_skills.values()]
+
+    def get_skill_chain_recommendations(self, task_type: str)-> list[list[str]]:
+        """获取技能链推荐"""
+        from uap.skill.atomic_skills import get_skill_chain_recommendations as get_recs
+        return get_recs(task_type)
+
+    def get_card_history(self, project_id: str, limit: int = 50) -> list[dict]:
+        """获取卡片历史"""
+        cards = self.card_manager.get_card_history_for_project(project_id, limit)
+        return [card.to_dict() for card in cards]
 
 
 from datetime import datetime

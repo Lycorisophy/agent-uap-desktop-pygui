@@ -2,6 +2,7 @@
 UAP 技能系统 - 模块入口
 
 提供技能系统的核心接口和便捷函数。
+参考 Chimera 的原子技能库设计。
 """
 
 from uap.skill.models import (
@@ -25,6 +26,15 @@ from uap.skill.executor import (
     ModelingSkillExecutor,
     PredictionSkillExecutor,
     SkillSessionTracker,
+)
+from uap.skill.atomic_skills import (
+    # 原子技能库
+    SkillMetadata,
+    AtomicSkill,
+    SkillComplexity,
+    get_atomic_skills_library,
+    get_skills_by_category,
+    get_skill_chain_recommendations,
 )
 
 
@@ -119,6 +129,13 @@ __all__ = [
     "ModelingSkillExecutor",
     "PredictionSkillExecutor",
     "SkillSessionTracker",
+    # 原子技能库
+    "SkillMetadata",
+    "AtomicSkill",
+    "SkillComplexity",
+    "get_atomic_skills_library",
+    "get_skills_by_category",
+    "get_skill_chain_recommendations",
     # 快捷函数
     "create_skill_manager",
     "create_modeling_executor",
