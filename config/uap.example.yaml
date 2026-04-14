@@ -1,0 +1,108 @@
+# UAP 配置文件示例
+# 复制为 uap.yaml 或 uap.local.yaml 使用
+
+version: 1
+
+# 应用配置
+app:
+  title: "UAP - 复杂系统未来势态量化预测统一智能体"
+  width: 1280
+  height: 800
+  debug: false
+
+# LLM 配置（与如意72兼容）
+llm:
+  provider: "ollama"  # ollama | minimax | deepseek | qwen
+  base_url: "http://127.0.0.1:11434"
+  model: "llama3.2"
+  temperature: 0.6
+  max_tokens: 4096
+  api_key: null
+  api_mode: "native"  # native | openai
+  trust_env: null
+
+# 嵌入模型配置
+embedding:
+  model: "qwen3-embedding:8b"
+  base_url: ""  # 空则使用 llm.base_url
+
+# 存储配置
+storage:
+  # 项目存储根目录
+  projects_root: ""  # 空则使用 ~/.uap/projects
+  # MySQL 连接
+  mysql:
+    host: "localhost"
+    port: 3306
+    user: "root"
+    password: ""
+    database: "uap"
+  # Redis 连接
+  redis:
+    host: "localhost"
+    port: 6379
+    password: null
+    db: 0
+  # Elasticsearch
+  elasticsearch:
+    hosts:
+      - "http://localhost:9200"
+    index_prefix: "uap"
+  # Milvus
+  milvus:
+    host: "localhost"
+    port: 19530
+    collection_prefix: "uap"
+  # Neo4j
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: ""
+  # MinIO
+  minio:
+    endpoint: "localhost:9000"
+    access_key: "minioadmin"
+    secret_key: "minioadmin"
+    secure: false
+    bucket_prefix: "uap"
+
+# 预测配置
+prediction:
+  # 默认预测频率（秒），默认1小时
+  default_frequency_sec: 3600
+  # 默认预测时长（秒），默认3天
+  default_horizon_sec: 259200
+  # 客户端打开时自动预测
+  auto_run_on_startup: true
+  # 最大并发预测任务数
+  max_concurrent_tasks: 3
+  # 预测结果保留天数
+  result_retention_days: 30
+
+# 调度器配置
+scheduler:
+  enabled: true
+  tick_interval_sec: 60  # 检查间隔
+  max_projects_per_tick: 10
+
+# 记忆与知识系统
+memory:
+  enabled: true
+  # 向量检索
+  vector_enabled: true
+  # 事件存储
+  event_index_enabled: true
+  # 关系图谱
+  graph_enabled: true
+
+# 智能体配置
+agent:
+  react_max_steps_default: 12
+  # 内置定时任务（默认开启，用于自动预测）
+  builtin_scheduler_enabled: true
+
+# 上下文压缩
+context_compression:
+  enabled: true
+  context_token_budget: 32000
+  pre_send_threshold: 0.85
