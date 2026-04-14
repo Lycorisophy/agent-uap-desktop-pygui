@@ -1,0 +1,303 @@
+# SY散度（熵积比散度）公式说明报告
+
+## 1. 概述
+
+**SY散度**（Entropy Product Ratio Divergence）是一种对称的、有界的概率分布相似度度量。其名称源于作者姓氏首字母（S/Y），定义为两个分布熵的乘积与它们平均分布熵的平方之比。该散度天然输出值域为 \([0,1]\)，且对分布的集中与分散程度具有直观的解释性。
+
+---
+
+## 2. 一维离散形式（原始定义）
+
+### 2.1 基本公式
+
+设 \(P = \{p_i\}_{i=1}^n\) 和 \(Q = \{q_i\}_{i=1}^n\) 为两个离散概率分布（\(\sum p_i = \sum q_i = 1\)，\(p_i, q_i \ge 0\)），则 SY 散度定义为：
+
+\[
+\boxed{\text{SY}(P,Q) = \frac{H(P) \cdot H(Q)}{\left[ H\!\left(\frac{P+Q}{2}\right) \right]^2}}
+\]
+
+其中 \(H(\cdot)\) 为香农熵（以2为底）：
+
+\[
+H(P) = -\sum_{i=1}^{n} p_i \log_2 p_i, \quad H(Q) = -\sum_{i=1}^{n} q_i \log_2 q_i
+\]
+
+\[
+H\!\left(\frac{P+Q}{2}\right) = -\sum_{i=1}^{n} \frac{p_i+q_i}{2} \log_2 \frac{p_i+q_i}{2}
+\]
+
+### 2.2 数值实现中的预处理
+
+实际计算时，若输入为任意实数向量 \(\mathbf{x}, \mathbf{y}\)（如词向量平均、声音特征），需先转换为概率分布。原始代码采用“加1归一化”：
+
+\[
+p_i = \frac{x_i - \min(\mathbf{x}) + 1}{\sum_{j=1}^{n} (x_j - \min(\mathbf{x}) + 1)}, \quad q_i \text{ 同理}
+\]
+
+该处理保证所有概率为正，且对原始向量的平移与缩放鲁棒。
+
+---
+
+## 3. 数学性质
+
+| 性质 | 表达式/说明 |
+|------|-------------|
+| **对称性** | \(\text{SY}(P,Q) = \text{SY}(Q,P)\) |
+| **有界性** | \(0 \le \text{SY}(P,Q) \le 1\) |
+| **最大值条件** | \(\text{SY}(P,Q)=1\) 当且仅当 \(P=Q\) **或** \(P\) 与 \(Q\) 均为均匀分布（此时 \(H(P)=H(Q)=H(\frac{P+Q}{2})=\log_2 n\)） |
+| **最小值条件** | \(\text{SY}(P,Q)=0\) 当且仅当 \(H(P)=0\) 且 \(H(Q)=0\) 且 \(P \neq Q\)（即两个单点分布集中于不同位置） |
+| **尺度不变性** | 对输入向量进行正线性变换（加常数、乘正因子）不影响最终结果（经归一化后） |
+| **与 JS 散度的关系** | \(\text{JS}(P,Q) = H(\frac{P+Q}{2}) - \frac{H(P)+H(Q)}{2}\)，而 SY 可视为 JS 散度的非线性变换：\(\text{SY} = 1 - \frac{\big(H(\frac{P+Q}{2}) - \sqrt{H(P)H(Q)}\big)^2}{H(\frac{P+Q}{2})^2}\) |
+
+### 3.1 证明值域 \([0,1]\)
+
+由熵的凹性：\(H(\frac{P+Q}{2}) \ge \frac{H(P)+H(Q)}{2} \ge \sqrt{H(P)H(Q)}\)（算术-几何平均不等式），两边平方得 \([H(\frac{P+Q}{2})]^2 \ge H(P)H(Q)\)，因此 \(\text{SY} \le 1\)；非负性显然。
+
+---
+
+## 4. 高维推广
+
+对于定义在 \(\mathbb{R}^d\) 上的连续分布或离散多元分布 \(P(\mathbf{x}), Q(\mathbf{x})\)，SY 散度可直接推广为：
+
+\[
+\boxed{\text{SY}_{\text{high}}(P,Q) = \frac{H(P)\,H(Q)}{\left[ H\!\left(\frac{P+Q}{2}\right) \right]^2}}
+\]
+
+其中 \(H(P) = -\int P(\mathbf{x}) \log P(\mathbf{x}) d\mathbf{x}\)（连续情形）或 \(H(P)=-\sum_{\mathbf{x}} P(\mathbf{x})\log P(\mathbf{x})\)（离散多元情形）。该形式保持了所有一维性质。
+
+### 4.1 实际高维数据的计算方法
+
+由于直接估计高维联合熵需要大量样本（维度灾难），推荐以下近似策略：
+
+#### 4.1.1 展平法（最常用）
+将高维矩阵/张量 **拉直** 为一维向量，然后应用一维 SY 公式。  
+**步骤**：
+1. 输入两个同形状矩阵 \(\mathbf{X}, \mathbf{Y} \in \mathbb{R}^{m \times n}\)（或更高维张量）。
+2. 展平为 \(\mathbf{x}, \mathbf{y} \in \mathbb{R}^{mn}\)。
+3. 执行“加1归一化”得到概率向量 \(P, Q\)。
+4. 计算一维 SY 散度。
+
+**适用场景**：元素间相关性较弱，或已通过特征提取（如 CNN 特征图、词嵌入）转化为独立特征。
+
+#### 4.1.2 分块平均法
+将大矩阵划分为 \(K\) 个子块（例如图像分成 \(k \times k\) 的小块），每个子块展平后计算 SY 散度，最后取平均值：
+
+\[
+\text{SY}_{\text{block}} = \frac{1}{K} \sum_{b=1}^{K} \text{SY}(\text{vec}(\mathbf{X}_b), \text{vec}(\mathbf{Y}_b))
+\]
+
+**优点**：保留局部空间/频率结构；**缺点**：计算量增大。
+
+#### 4.1.3 边际分布法（适用于概率图模型）
+若数据可视为多个随机变量的联合观测（如多通道声音），计算每一维度的边际分布 \(P_{j}, Q_{j}\)（\(j=1,\dots,d\)），然后对边际 SY 散度取平均：
+
+\[
+\text{SY}_{\text{marg}} = \frac{1}{d} \sum_{j=1}^{d} \text{SY}(P_j, Q_j)
+\]
+
+---
+
+## 5. 与经典相似度/散度的对比
+
+| 度量 | 值域 | 对称性 | 计算复杂度 | 对噪声敏感度 | 是否满足三角不等式 |
+|------|------|--------|------------|--------------|-------------------|
+| **SY 散度** | [0,1] | 是 | \(O(n)\) | 中等 | 否 |
+| **余弦相似度** | [-1,1] | 是 | \(O(n)\) | 低（对幅值不敏感） | 否（相似度） |
+| **JS 散度** | [0,1] | 是 | \(O(n)\) | 中等 | 是（距离的平方根） |
+| **KL 散度** | [0,∞) | 否 | \(O(n)\) | 高（对零值敏感） | 否 |
+| **欧氏距离** | [0,∞) | 是 | \(O(n)\) | 高（受量纲影响） | 是 |
+
+**SY 散度的独特优势**：
+- 输出天然在 [0,1] 区间，无需后处理；
+- 同时惩罚分布差异与分散程度，适合语义相似度任务；
+- 数值稳定性优于 KL 散度（通过加1归一化避免对数零值）。
+
+**局限性**：
+- 不满足三角不等式，不能作为距离度量；
+- 对完全随机的均匀分布给出最高值（1），可能不符合某些应用直觉。
+
+---
+
+## 6. Python 代码实现
+
+### 6.1 基础一维 SY 散度（纯 NumPy 版本）
+
+```python
+import numpy as np
+
+def sy_divergence_1d(p, q, eps=1e-12):
+    """
+    计算两个一维概率分布的 SY 散度。
+    参数:
+        p, q: 一维 numpy 数组，已归一化（和为1，所有元素>=0）
+        eps: 防止 log(0) 的小量
+    返回:
+        SY 散度，范围 [0,1]
+    """
+    # 计算熵
+    h_p = -np.sum(p * np.log2(p + eps))
+    h_q = -np.sum(q * np.log2(q + eps))
+    r = (p + q) / 2
+    h_r = -np.sum(r * np.log2(r + eps))
+    # 防止除以0
+    return (h_p * h_q) / (h_r * h_r + eps)
+
+def preprocess(vec):
+    """
+    加1归一化：任意实数向量 -> 概率分布
+    参数:
+        vec: 一维 numpy 数组
+    返回:
+        归一化后的概率向量
+    """
+    vec = vec - np.min(vec) + 1.0
+    return vec / np.sum(vec)
+
+def sy_similarity_1d(x, y):
+    """
+    直接计算两个一维向量的 SY 相似度（自动预处理）
+    参数:
+        x, y: 一维 numpy 数组
+    返回:
+        SY 散度值
+    """
+    p = preprocess(x)
+    q = preprocess(y)
+    return sy_divergence_1d(p, q)
+```
+
+### 6.2 高维展平版本（适用于矩阵/张量）
+
+```python
+def sy_similarity_flatten(X, Y):
+    """
+    将高维数组展平后计算 SY 相似度
+    参数:
+        X, Y: numpy 数组（任意形状，但形状必须相同）
+    返回:
+        SY 散度值
+    """
+    x_flat = X.flatten()
+    y_flat = Y.flatten()
+    return sy_similarity_1d(x_flat, y_flat)
+```
+
+### 6.3 分块平均版本（保持局部结构）
+
+```python
+def sy_similarity_block(X, Y, block_shape):
+    """
+    将矩阵分块，每个块展平后计算 SY 散度，再取平均
+    参数:
+        X, Y: 二维 numpy 数组（图像、频谱等）
+        block_shape: 元组 (h, w)，块的大小
+    返回:
+        平均 SY 散度
+    """
+    h, w = block_shape
+    H, W = X.shape
+    assert H % h == 0 and W % w == 0, "块大小必须能整除原矩阵尺寸"
+    
+    scores = []
+    for i in range(0, H, h):
+        for j in range(0, W, w):
+            block_x = X[i:i+h, j:j+w]
+            block_y = Y[i:i+h, j:j+w]
+            scores.append(sy_similarity_flatten(block_x, block_y))
+    return np.mean(scores)
+```
+
+### 6.4 完整示例：计算两个句子（词向量平均）的 SY 相似度
+
+```python
+# 假设已加载 word2vec 模型，大小为 256 维
+import gensim
+model = gensim.models.Word2Vec.load("model/word2vec_baike")
+
+def sentence_vector(sentence):
+    """将句子转换为词向量平均（与原始代码一致）"""
+    words = sentence.split()
+    vec = np.zeros(256)
+    count = 0
+    for w in words:
+        try:
+            vec += model[w]
+            count += 1
+        except KeyError:
+            continue
+    if count > 0:
+        vec /= count
+    return vec
+
+def sy_similarity_sentence(s1, s2):
+    v1 = sentence_vector(s1)
+    v2 = sentence_vector(s2)
+    return sy_similarity_1d(v1, v2)
+
+# 使用示例
+s1 = "今天天气很好"
+s2 = "今日天气不错"
+sim = sy_similarity_sentence(s1, s2)
+print(f"SY 相似度: {sim:.4f}")  # 输出应为 [0,1] 之间的值
+```
+
+### 6.5 批量计算相似度矩阵
+
+```python
+def build_similarity_matrix(texts, similarity_func):
+    """
+    构建文本列表的相似度矩阵
+    参数:
+        texts: 字符串列表
+        similarity_func: 相似度函数，接受两个字符串，返回 float
+    返回:
+        N x N 相似度矩阵
+    """
+    n = len(texts)
+    mat = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            mat[i, j] = similarity_func(texts[i], texts[j])
+    return mat
+
+# 示例：读取 test.txt，计算所有句对 SY 相似度
+def sy_result():
+    with open("test.txt", "r", encoding="utf-8") as f:
+        contents = [line.strip() for line in f.readlines()]
+    matrix = build_similarity_matrix(contents, sy_similarity_sentence)
+    
+    with open("result_sy.txt", "w", encoding="utf-8") as fout:
+        for j, text in enumerate(contents):
+            # 找到最相似的句子（排除自身）
+            idx = np.argsort(matrix[j])[-2]
+            fout.write(f"事件{j+1}:\t{text}\n")
+            fout.write(f"最相似事件{idx+1}:\t{contents[idx]}\n")
+            fout.write(f"相似度: {matrix[j, idx]:.6f}\n\n")
+```
+
+---
+
+## 7. 应用场景与建议
+
+| 应用领域 | 推荐形式 | 原因 |
+|----------|----------|------|
+| 句子相似度（词向量平均） | 一维 SY | 词向量已为低维稠密向量，直接计算高效稳定 |
+| 声音事件检测（MFCC 帧平均） | 一维 SY | 特征维度较低（通常 13~40），展平法足够 |
+| 图像分类（深度特征图） | 展平法或分块平均 | 高维 CNN 特征具有空间结构，分块可保留局部信息 |
+| 频谱图相似度（时间×频率） | 展平法 | 若已做 PCA/降维，展平法简单有效 |
+| 概率图模型（如高斯混合） | 连续形式（需解析熵） | 利用多元高斯熵公式：\(H(\mathcal{N}(\mu,\Sigma)) = \frac{1}{2}\ln((2\pi e)^d |\Sigma|)\) |
+
+---
+
+## 8. 总结
+
+**SY散度**是一种新颖的概率分布相似度度量，其核心创新在于**将熵的乘积与平均分布熵的平方之比**作为相似度。该度量对称、有界、计算简单，已在句子/声音相似度任务中验证有效性。高维推广可通过展平或分块策略实现，适用于多种实际数据。
+
+**公式核心**：
+\[
+\boxed{\text{SY}(P,Q) = \frac{H(P) H(Q)}{H^2\!\left(\frac{P+Q}{2}\right)}}
+\]
+
+**建议**：在需要输出范围为 [0,1] 且对分布分散程度敏感的任务中，优先采用 SY 散度；对于严格的概率距离需求，可结合 JS 散度使用。
+
+---
