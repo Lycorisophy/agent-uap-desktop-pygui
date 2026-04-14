@@ -67,6 +67,7 @@ class UAPApplication:
     def _create_default_frontend(self, frontend_dir: Path):
         """创建默认前端页面"""
         frontend_dir.mkdir(parents=True, exist_ok=True)
+        index_path = frontend_dir / "index.html"
 
         # 创建 index.html
         html_content = '''<!DOCTYPE html>

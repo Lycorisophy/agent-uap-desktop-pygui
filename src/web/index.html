@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UAP - 复杂系统预测智能体</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="cards.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>UAP</h1>
+                <p class="subtitle">复杂系统预测</p>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-view="projects">
+                    <span class="icon">📁</span>
+                    <span>项目列表</span>
+                </button>
+                <button class="nav-item" data-view="modeling">
+                    <span class="icon">🔧</span>
+                    <span>系统建模</span>
+                </button>
+                <button class="nav-item" data-view="prediction">
+                    <span class="icon">📊</span>
+                    <span>预测分析</span>
+                </button>
+                <button class="nav-item" data-view="settings">
+                    <span class="icon">⚙️</span>
+                    <span>设置</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="scheduler-status" id="schedulerStatus">
+                    <span class="status-indicator"></span>
+                    <span>调度器运行中</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 项目列表视图 -->
+            <section id="projectsView" class="view active">
+                <div class="view-header">
+                    <h2>项目列表</h2>
+                    <button class="btn btn-primary" id="createProjectBtn">+ 新建项目</button>
+                </div>
+                <div class="project-grid" id="projectGrid">
+                    <!-- 项目卡片将通过JS动态加载 -->
+                </div>
+            </section>
+
+            <!-- 系统建模视图 -->
+            <section id="modelingView" class="view">
+                <div class="view-header">
+                    <h2>系统建模</h2>
+                    <div class="project-selector">
+                        <select id="modelingProjectSelect">
+                            <option value="">选择项目...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modeling-container">
+                    <div class="modeling-chat">
+                        <div class="chat-messages" id="chatMessages">
+                            <div class="message system">
+                                <div class="message-content">
+                                    欢迎使用系统建模工具。您可以通过对话方式描述您的复杂系统，我会帮您提取系统模型。
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-input">
+                            <textarea id="chatInput" placeholder="描述您的系统..." rows="3"></textarea>
+                            <button class="btn btn-primary" id="sendMessageBtn">发送</button>
+                        </div>
+                    </div>
+                    <div class="model-preview">
+                        <h3>系统模型预览</h3>
+                        <div class="model-content" id="modelPreview">
+                            <p class="placeholder">尚未提取模型</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 预测分析视图 -->
+            <section id="predictionView" class="view">
+                <div class="view-header">
+                    <h2>预测分析</h2>
+                    <div class="project-selector">
+                        <select id="predictionProjectSelect">
+                            <option value="">选择项目...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="prediction-container">
+                    <div class="prediction-config">
+                        <h3>预测配置</h3>
+                        <div class="config-form">
+                            <div class="form-group">
+                                <label>预测频率</label>
+                                <select id="predictionFrequency">
+                                    <option value="3600">每小时</option>
+                                    <option value="7200">每2小时</option>
+                                    <option value="21600">每6小时</option>
+                                    <option value="43200">每12小时</option>
+                                    <option value="86400">每天</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>预测时长</label>
+                                <select id="predictionHorizon">
+                                    <option value="86400">1天</option>
+                                    <option value="259200">3天</option>
+                                    <option value="604800">7天</option>
+                                    <option value="2592000">30天</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-primary" id="runNowBtn">立即预测</button>
+                                <button class="btn btn-success" id="startSchedulerBtn">启动定时</button>
+                                <button class="btn btn-secondary" id="stopSchedulerBtn">停止定时</button>
+                            </div>
+                        </div>
+                        <div class="task-status" id="taskStatus">
+                            <p>任务状态: 未启动</p>
+                        </div>
+                    </div>
+                    <div class="prediction-results">
+                        <h3>预测结果</h3>
+                        <div class="results-chart" id="resultsChart">
+                            <div class="chart-placeholder">
+                                <p>暂无预测数据</p>
+                            </div>
+                        </div>
+                        <div class="results-list" id="resultsList">
+                            <!-- 预测结果列表 -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 设置视图 -->
+            <section id="settingsView" class="view">
+                <div class="view-header">
+                    <h2>设置</h2>
+                </div>
+                <div class="settings-container">
+                    <div class="settings-section">
+                        <h3>LLM 配置</h3>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>提供商</label>
+                                <select id="llmProvider">
+                                    <option value="ollama">Ollama</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="deepseek">DeepSeek</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>模型名称</label>
+                                <input type="text" id="llmModel" placeholder="e.g., llama3.2">
+                            </div>
+                            <div class="form-group">
+                                <label>API Base URL</label>
+                                <input type="text" id="llmBaseUrl" placeholder="http://localhost:11434">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>预测参数</h3>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>默认预测频率（秒）</label>
+                                <input type="number" id="defaultFrequency" value="3600">
+                            </div>
+                            <div class="form-group">
+                                <label>默认预测时长（秒）</label>
+                                <input type="number" id="defaultHorizon" value="259200">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary" id="saveSettingsBtn">保存设置</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 创建项目模态框 -->
+    <div class="modal" id="createProjectModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>新建项目</h3>
+                <button class="modal-close" id="closeProjectModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>项目名称</label>
+                    <input type="text" id="projectName" placeholder="输入项目名称">
+                </div>
+                <div class="form-group">
+                    <label>项目描述</label>
+                    <textarea id="projectDescription" placeholder="输入项目描述（可选）" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelProjectBtn">取消</button>
+                <button class="btn btn-primary" id="confirmCreateBtn">创建</button>
+</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="cards.js"></script>
+</body>
+</html>
