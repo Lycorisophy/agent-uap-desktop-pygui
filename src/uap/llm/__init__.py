@@ -4,6 +4,6 @@ UAP LLM集成模块
 """
 
 from uap.llm.ollama_client import OllamaClient
-from uap.llm.model_extractor import ModelExtractor
+from uap.llm.model_extractor import ModelExtractor, create_default_extractor
 
-__all__ = ['OllamaClient', 'ModelExtractor']
+__all__ = ['OllamaClient', 'ModelExtractor', 'create_default_extractor']

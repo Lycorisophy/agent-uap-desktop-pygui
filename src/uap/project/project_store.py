@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from src.uap.project.models import (
+from uap.project.models import (
     PredictionConfig,
     PredictionResult,
     PredictionTask,
@@ -29,7 +29,7 @@ from src.uap.project.models import (
 )
 
 if TYPE_CHECKING:
-    from src.uap.config import UapConfig
+    from uap.config import UapConfig
 
 
 class ProjectStore:
@@ -41,8 +41,8 @@ class ProjectStore:
     MESSAGES_FILE = "messages.json"
     TASKS_FILE = "prediction_tasks.json"
     
-    def __init__(self, root: Path, uap_cfg: Optional["UapConfig"] = None) -> None:
-        self._root = root
+    def __init__(self, root: Path | str, uap_cfg: Optional["UapConfig"] = None) -> None:
+        self._root = Path(root) if isinstance(root, str) else root
         self._uap_cfg = uap_cfg
         self._root.mkdir(parents=True, exist_ok=True)
     

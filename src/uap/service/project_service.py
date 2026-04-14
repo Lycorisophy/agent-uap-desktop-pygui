@@ -12,16 +12,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.uap.config import UapConfig
-from src.uap.llm import ModelExtractor, create_default_extractor
-from src.uap.project.models import (
+from uap.config import UapConfig
+from uap.llm import ModelExtractor, create_default_extractor
+from uap.project.models import (
     ModelSource,
     PredictionConfig,
     Project,
     ProjectStatus,
     SystemModel,
 )
-from src.uap.project.project_store import ProjectStore
+from uap.project.project_store import ProjectStore
 
 _LOG = logging.getLogger("uap.project_service")
 

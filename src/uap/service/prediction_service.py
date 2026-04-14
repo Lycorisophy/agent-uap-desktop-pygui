@@ -12,8 +12,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from src.uap.config import UapConfig
-from src.uap.engine import (
+from uap.config import UapConfig
+from uap.engine import (
     Predictor,
     PredictionMethod,
     create_predictor,
@@ -21,13 +21,13 @@ from src.uap.engine import (
     KoopmanPredictor,
     SystemSimulator
 )
-from src.uap.project.models import (
+from uap.project.models import (
     PredictionConfig,
     PredictionResult,
     PredictionTask,
     Project,
 )
-from src.uap.project.project_store import ProjectStore
+from uap.project.project_store import ProjectStore
 
 _LOG = logging.getLogger("uap.prediction_service")
 

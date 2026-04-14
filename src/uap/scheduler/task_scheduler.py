@@ -12,7 +12,24 @@ from typing import Optional, Callable
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-from uap.project.models import PredictionTask, TaskStatus, TriggerType
+from uap.project.models import PredictionTask
+
+
+class TaskStatus(str, Enum):
+    """任务状态"""
+    PENDING = "pending"    # 待执行
+    RUNNING = "running"    # 执行中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"      # 失败
+    PAUSED = "paused"      # 已暂停
+    CANCELLED = "cancelled"  # 已取消
+
+
+class TriggerType(str, Enum):
+    """触发类型"""
+    INTERVAL = "interval"  # 间隔触发
+    CRON = "cron"          # Cron表达式触发
+    ONE_TIME = "one_time"  # 单次触发
 
 
 @dataclass

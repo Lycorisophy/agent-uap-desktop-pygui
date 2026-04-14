@@ -26,25 +26,29 @@ class UAPApi:
 
     def __init__(self, config: Optional[UAPConfig] = None):
         self.config = config or load_config()
-        self.project_store = ProjectStore(self.config.projects_dir)
-        self.project_service = ProjectService(self.project_store)
-        self.prediction_service = PredictionService(self.project_store)
+        # 使用 storage.projects_root 或默认 ~/.uap/projects
+        projects_root = self.config.storage.projects_root or os.path.join(
+            os.path.expanduser("~"), ".uap", "projects"
+        )
+        self.project_store = ProjectStore(projects_root)
+        self.project_service = ProjectService(self.project_store, self.config)
+        self.prediction_service = PredictionService(self.project_store, self.config)
         self.scheduler = self._init_scheduler()
 
     def _init_scheduler(self) -> TaskScheduler:
         """初始化调度器"""
         scheduler_config = SchedulerConfig(
-            check_interval=self.config.scheduler.check_interval,
-            max_concurrent_tasks=self.config.scheduler.max_concurrent_tasks,
-            task_timeout=self.config.scheduler.task_timeout,
-            retry_times=self.config.scheduler.retry_times,
-            retry_interval=self.config.scheduler.retry_interval,
+            check_interval=self.config.scheduler.tick_interval_sec,
+            max_concurrent_tasks=self.config.scheduler.max_projects_per_tick,
+            task_timeout=300,
+            retry_times=3,
+            retry_interval=60,
             enabled=self.config.scheduler.enabled
         )
 
         scheduler = TaskScheduler(scheduler_config)
         scheduler.set_tasks_file(
-            os.path.join(self.config.projects_dir, 'scheduled_tasks.json')
+            os.path.join(self.project_store.root, 'scheduled_tasks.json')
         )
         scheduler.set_task_callback(self._on_prediction_task)
         scheduler.load_tasks()

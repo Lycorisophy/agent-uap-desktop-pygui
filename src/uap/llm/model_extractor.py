@@ -220,7 +220,7 @@ class ModelExtractor:
             )
         
         try:
-data = json.loads(json_str)
+            data = json.loads(json_str)
             
             # 验证必需字段
             if "variables" not in data:

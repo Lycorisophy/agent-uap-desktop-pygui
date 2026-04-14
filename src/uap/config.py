@@ -181,6 +181,10 @@ class UapConfig(BaseModel):
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
 
 
+# 兼容性别名
+UAPConfig = UapConfig
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """深度合并字典"""
     out = dict(base)
