@@ -179,15 +179,20 @@ class UAPApi:
 
     def modeling_chat(self, project_id: str, message: str) -> dict:
         """
-        Chat with the agent for system modeling
-        This is a simplified version that extracts model from a single message
+        Chat with the agent for system modeling using ReAct mode
+        
+        ReAct模式特点：
+        1. LLM决定使用哪些技能
+        2. 通过DST跟踪建模进度
+        3. 可以自主搜索网络获取信息
+        4. 通过卡片让用户确认关键决策
         
         Args:
             project_id: Project ID
             message: User's message describing the system
             
         Returns:
-            dict with message and optional model
+            dict with message, optional model, and ReAct execution details
         """
         _LOG.info("[API] modeling_chat called: project_id=%s, message_len=%d", project_id, len(message))
         try:
@@ -195,30 +200,62 @@ class UAPApi:
             messages = self.project_store.load_messages(project_id)
             _LOG.debug("[API] Loaded %d existing messages", len(messages))
             
-            # Extract model from the conversation
-            _LOG.info("[API] Calling extract_model_from_conversation...")
-            result = self.project_service.extract_model_from_conversation(
-                project_id, messages, message
-            )
-            _LOG.info("[API] extract_model_from_conversation result: ok=%s", result.get("ok"))
+            # Save the user message first
+            messages.append({"role": "user", "content": message, "created_at": datetime.now().isoformat()})
+            self.project_store.save_messages(project_id, messages)
             
-            # Save the user message
-            self.project_store.save_messages(project_id, messages + [
-                {"role": "user", "content": message, "created_at": datetime.now().isoformat()}
-            ])
+            # 使用ReAct模式进行智能建模
+            _LOG.info("[API] Calling react_modeling (ReAct mode)...")
+            result = self.project_service.react_modeling(
+                project_id=project_id,
+                user_message=message,
+                card_manager=self.card_manager,
+                web_search_func=self._get_web_search_func(),
+            )
+            _LOG.info("[API] react_modeling result: ok=%s, success=%s", result.get("ok"), result.get("success"))
             
             if result.get("ok"):
-                # Add assistant response
-                response_message = result.get("message", "系统模型已更新")
-                self.project_store.save_messages(project_id, 
+                response_message = result.get("message", "建模完成")
+                
+                # 构建详细的执行信息
+                steps_info = ""
+                if result.get("steps"):
+                    steps_info = f"\n\n[ReAct执行: {len(result['steps'])}步]"
+                    for step in result["steps"][-3:]:  # 显示最近3步
+                        if step.get("thought"):
+                            steps_info += f"\n- 思考: {step['thought'][:50]}..."
+                        if step.get("action") and step.get("action") != "FINAL_ANSWER":
+                            steps_info += f"\n  行动: {step['action']}"
+                
+                # 构建DST状态信息
+                dst_info = ""
+                dst_state = result.get("dst_state", {})
+                if dst_state:
+                    progress = dst_state.get("progress", 0)
+                    stage = dst_state.get("current_stage", "unknown")
+                    vars_count = len(dst_state.get("variables", []))
+                    rels_count = len(dst_state.get("relations", []))
+                    dst_info = f"\n[进度: {progress*100:.0f}%] 阶段={stage}, 变量={vars_count}, 关系={rels_count}"
+                
+                full_message = response_message + steps_info + dst_info
+                
+                # 保存助手响应
+                self.project_store.save_messages(project_id,
                     self.project_store.load_messages(project_id) + [
-                        {"role": "assistant", "content": response_message, "created_at": datetime.now().isoformat()}
+                        {"role": "assistant", "content": full_message, "created_at": datetime.now().isoformat()}
                     ]
                 )
+                
                 return {
                     "ok": True,
-                    "message": response_message,
-                    "model": result.get("model")
+                    "message": full_message,
+                    "model": result.get("model"),
+                    "session_id": result.get("session_id"),
+                    "steps": result.get("steps", []),
+                    "dst_state": dst_state,
+                    "pending_card": result.get("pending_card"),
+                    "success": result.get("success", False),
+                    "tool_calls": result.get("tool_calls", 0),
                 }
             else:
                 error_msg = result.get("error", "建模失败")
@@ -233,6 +270,12 @@ class UAPApi:
                 "ok": False,
                 "message": str(e)
             }
+    
+    def _get_web_search_func(self):
+        """获取Web搜索函数"""
+        # 可以集成实际的搜索API
+        # 这里返回None，将在react_modeling中决定是否启用
+        return None
 
     def import_model_from_document(
         self,

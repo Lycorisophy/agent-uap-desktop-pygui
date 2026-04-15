@@ -9,17 +9,21 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from uap.config import UapConfig
 from uap.llm import ModelExtractor, create_default_extractor
+from uap.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import (
     ModelSource,
     PredictionConfig,
     Project,
     ProjectStatus,
     SystemModel,
+    Variable,
+    Relation,
 )
 from uap.project.project_store import ProjectStore
 
@@ -526,3 +530,302 @@ class ProjectService:
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # ============ ReAct 智能建模 ============
+
+    def react_modeling(
+        self,
+        project_id: str,
+        user_message: str,
+        card_manager=None,
+        web_search_func=None,
+    ) -> dict:
+        """
+        使用ReAct模式进行智能建模
+
+        让LLM决定使用哪些技能，通过DST跟踪建模进度，
+        可以自主搜索网络获取信息，或通过卡片让用户确认。
+
+        Args:
+            project_id: 项目ID
+            user_message: 用户消息
+            card_manager: 卡片管理器（可选）
+            web_search_func: 网络搜索函数（可选）
+
+        Returns:
+            dict: 建模结果
+        """
+        try:
+            from uap.react import (
+                ReactAgent,
+                DstManager,
+                create_web_search_skill,
+                ReactCardIntegration,
+            )
+            from uap.skill.atomic_skills import get_atomic_skills_library, AtomicSkill
+
+            project = self._store.get_project(project_id)
+
+            _LOG.info("[ReactModeling] Starting: project=%s, message=%s",
+                      project_id, user_message[:50])
+
+            # 1. 创建DST管理器
+            dst_manager = DstManager()
+
+            # 2. 创建LLM客户端
+            llm_cfg = OllamaConfig(
+                base_url=self._cfg.llm.base_url,
+                model=self._cfg.llm.model,
+            )
+            llm_client = OllamaClient(llm_cfg)
+
+            # 3. 构建技能注册表
+            skills_registry = {}
+
+            # 添加原子技能
+            atomic_skills = get_atomic_skills_library()
+            for skill_id, skill_meta in atomic_skills.items():
+                skills_registry[skill_id] = AtomicSkill(skill_meta)
+
+            # 添加Web搜索技能
+            if web_search_func:
+                web_skill = create_web_search_skill(web_search_func)
+                skills_registry["web_search"] = web_skill
+
+            # 添加模型提取技能
+            model_extract_skill = self._create_model_extraction_skill()
+            skills_registry["extract_model"] = model_extract_skill
+
+            # 添加变量定义技能
+            variable_skill = self._create_variable_definition_skill()
+            skills_registry["define_variable"] = variable_skill
+
+            # 添加关系发现技能
+            relation_skill = self._create_relation_discovery_skill()
+            skills_registry["discover_relations"] = relation_skill
+
+            # 4. 创建ReAct Agent
+            react_agent = ReactAgent(
+                llm_client=llm_client,
+                skills_registry=skills_registry,
+                dst_manager=dst_manager,
+                max_iterations=15,
+                max_time_seconds=180.0,
+            )
+
+            # 5. 创建卡片集成
+            card_integration = None
+            if card_manager:
+                card_integration = ReactCardIntegration(card_manager)
+
+            # 6. 构建上下文
+            context = {
+                "project_id": project_id,
+                "project_name": project.name,
+                "existing_model": project.system_model.model_dump() if project.system_model else None,
+            }
+
+            # 7. 执行ReAct循环
+            result = react_agent.run(user_message, context)
+
+            _LOG.info("[ReactModeling] Completed: success=%s, steps=%d",
+                      result.success, result.total_steps)
+
+            # 8. 从DST状态提取模型
+            model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
+
+            # 9. 弹出确认卡片
+            pending_card = None
+            if model and card_integration and (model.variables or model.relations):
+                card_id = card_integration.create_model_confirm_card(
+                    session_id=result.session_id,
+                    project_id=project_id,
+                    variables=[v.model_dump() for v in model.variables],
+                    relations=[r.model_dump() for r in model.relations],
+                    constraints=model.constraints or [],
+                )
+                pending_card = card_id
+
+            # 10. 保存结果
+            if model:
+                project.system_model = model
+                project.status = ProjectStatus.MODELING
+                project = self._store.update_project(project)
+                self._store.save_model(project_id, model)
+
+            return {
+                "ok": True,
+                "message": self._generate_response_message(result, model),
+                "model": model.model_dump() if model else None,
+                "session_id": result.session_id,
+                "steps": [s.model_dump() for s in result.steps],
+                "dst_state": result.dst_state,
+                "pending_card": pending_card,
+                "success": result.success,
+            }
+
+        except FileNotFoundError:
+            return {"ok": False, "error": "项目不存在"}
+        except Exception as e:
+            _LOG.exception("[ReactModeling] Error: %s", str(e))
+            return {"ok": False, "error": f"ReAct建模异常: {str(e)}"}
+
+    def _create_model_extraction_skill(self):
+        """创建模型提取技能"""
+        from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory, SkillComplexity
+
+        metadata = SkillMetadata(
+            skill_id="extract_model",
+            name="提取系统模型",
+            description="从对话中提取复杂系统的数学模型，包括变量、关系和约束",
+            category=SkillCategory.MODELING,
+            subcategory="extraction",
+            input_schema={
+                "type": "object",
+                "required": ["user_description"],
+                "properties": {
+                    "user_description": {"type": "string", "description": "用户对系统的描述"}
+                }
+            },
+            estimated_time=10,
+            complexity=SkillComplexity.MODERATE,
+            provides_skills=["variable_collection", "relation_discovery"]
+        )
+
+        skill = AtomicSkill(metadata)
+
+        def executor(s, user_description="", **kwargs):
+            try:
+                result = self._extractor.extract_from_conversation(
+                    messages=[{"role": "user", "content": user_description}],
+                    user_prompt=user_description
+                )
+                if result.success:
+                    model = result.model
+                    return {
+                        "observation": f"提取到模型：{len(model.variables)}个变量，{len(model.relations)}个关系",
+                        "variables": [v.model_dump() for v in model.variables],
+                        "relations": [r.model_dump() for r in model.relations],
+                    }
+                else:
+                    return {"error": result.error, "observation": f"提取失败: {result.error}"}
+            except Exception as e:
+                return {"error": str(e), "observation": f"提取异常: {str(e)}"}
+
+        skill.set_executor(executor)
+        return skill
+
+    def _create_variable_definition_skill(self):
+        """创建变量定义技能"""
+        from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory, SkillComplexity
+
+        metadata = SkillMetadata(
+            skill_id="define_variable",
+            name="定义系统变量",
+            description="定义系统的状态变量，包括名称、类型、单位、取值范围等",
+            category=SkillCategory.MODELING,
+            subcategory="variable",
+            input_schema={
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "description": "变量名称"},
+                    "value_type": {"type": "string", "description": "变量类型"},
+                    "description": {"type": "string", "description": "变量描述"},
+                    "unit": {"type": "string", "description": "物理单位"},
+                }
+            },
+            estimated_time=2,
+            complexity=SkillComplexity.SIMPLE,
+        )
+
+        skill = AtomicSkill(metadata)
+
+        def executor(s, name="", description="", value_type="float", unit="", **kwargs):
+            var = Variable(
+                name=name,
+                value_type=value_type,
+                description=description,
+                unit=unit or "",
+            )
+            return {
+                "observation": f"定义变量：{name} (类型={value_type})",
+                "variable": var.model_dump(),
+                "needs_confirmation": True,
+            }
+
+        skill.set_executor(executor)
+        return skill
+
+    def _create_relation_discovery_skill(self):
+        """创建关系发现技能"""
+        from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory, SkillComplexity
+
+        metadata = SkillMetadata(
+            skill_id="discover_relations",
+            name="发现系统关系",
+            description="识别系统中变量之间的数学关系或物理规律",
+            category=SkillCategory.MODELING,
+            subcategory="relation",
+            input_schema={
+                "type": "object",
+                "required": ["from_var", "to_var", "relationship"],
+                "properties": {
+                    "from_var": {"type": "string", "description": "源变量"},
+                    "to_var": {"type": "string", "description": "目标变量"},
+                    "relationship": {"type": "string", "description": "关系描述"},
+                }
+            },
+            estimated_time=5,
+            complexity=SkillComplexity.MODERATE,
+        )
+
+        skill = AtomicSkill(metadata)
+
+        def executor(s, from_var="", to_var="", relationship="", **kwargs):
+            rel = Relation(
+                name=f"{from_var}_to_{to_var}",
+                source=from_var,
+                target=to_var,
+                description=relationship
+            )
+            return {
+                "observation": f"发现关系：{from_var} → {to_var}",
+                "relation": rel.model_dump(),
+                "needs_confirmation": True,
+            }
+
+        skill.set_executor(executor)
+        return skill
+
+    def _build_model_from_dst(self, dst_manager, session_id: str, project_name: str) -> Optional[SystemModel]:
+        """从DST状态构建系统模型"""
+        model_summary = dst_manager.get_model_summary(session_id)
+        if not model_summary:
+            return None
+
+        variables = [Variable(**v) if isinstance(v, dict) else v for v in model_summary.get("variables", [])]
+        relations = [Relation(**r) if isinstance(r, dict) else r for r in model_summary.get("relations", [])]
+
+        model = SystemModel(
+            id=str(uuid.uuid4()),
+            name=f"{project_name} - ReAct建模",
+            source=ModelSource.LLM_EXTRACTED,
+            variables=variables,
+            relations=relations,
+            constraints=model_summary.get("constraints", []),
+            confidence=model_summary.get("confidence", 0.5),
+        )
+        return model
+
+    def _generate_response_message(self, result, model) -> str:
+        """生成响应消息"""
+        if result.success and model:
+            parts = []
+            if model.variables:
+                parts.append(f"已识别 {len(model.variables)} 个变量")
+            if model.relations:
+                parts.append(f"发现 {len(model.relations)} 个关系")
+            if parts:
+                return "建模进度：" + "，".join(parts) + "。"
+        return "建模完成。" if result.success else f"建模问题：{result.error_message or '未知错误'}"

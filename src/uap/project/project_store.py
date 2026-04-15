@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from uap.project.models import (
+from models import (
     PredictionConfig,
     PredictionResult,
     PredictionTask,
@@ -29,7 +29,7 @@ from uap.project.models import (
 )
 
 if TYPE_CHECKING:
-    from uap.config import UapConfig
+    from config import UapConfig
 
 
 class ProjectStore:
