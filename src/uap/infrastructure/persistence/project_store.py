@@ -32,6 +32,15 @@ if TYPE_CHECKING:
     from uap.config import UapConfig
 
 
+def user_workspace_dir(project_id: str) -> Path:
+    """
+    用户可见的「项目空间」根目录：~/.uap/workspace/{project_id}/
+
+    与 ``projects_root/{project_id}``（元数据、对话、预测落盘）分离，便于用户直接管理文件。
+    """
+    return (Path.home() / ".uap" / "workspace" / project_id).expanduser().resolve()
+
+
 class ProjectStore:
     """项目存储管理器"""
     
@@ -79,11 +88,18 @@ class ProjectStore:
         project = Project(
             name=name,
             description=description,
-            workspace="",  # 下面在创建目录后写入真实项目根路径
+            workspace="",
         )
         d = self._ensure_project_dir(project.id)
-        # 持久化上的项目根即 ``projects_root / project_id``，供文件技能与「打开文件夹」使用
-        project.workspace = str(d.resolve()) if not workspace else str(Path(workspace).expanduser().resolve())
+        # 用户项目空间：~/.uap/workspace/{id}/（与元数据目录分离）
+        if workspace:
+            user_root = Path(workspace).expanduser().resolve()
+        else:
+            user_root = user_workspace_dir(project.id)
+        user_root.mkdir(parents=True, exist_ok=True)
+        for sub in ("intro", "skills", "logs", "models", "tasks", "data", "documents"):
+            (user_root / sub).mkdir(exist_ok=True)
+        project.workspace = str(user_root)
         self._write_meta(d, project)
         self._write_messages(d, [])
         self._write_tasks(d, [])
@@ -107,7 +123,13 @@ class ProjectStore:
         return project
     
     def delete_project(self, project_id: str) -> None:
-        """删除项目"""
+        """删除项目（元数据目录 + 用户项目空间）"""
+        ws = user_workspace_dir(project_id)
+        if ws.is_dir():
+            try:
+                shutil.rmtree(ws)
+            except OSError:
+                pass
         d = self._project_dir(project_id)
         if d.is_dir():
             shutil.rmtree(d)

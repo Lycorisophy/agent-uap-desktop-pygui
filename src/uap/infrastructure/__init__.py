@@ -7,6 +7,10 @@
 - ``uap.infrastructure.scheduler``：定时任务
 """
 
-from uap.infrastructure.persistence import ProjectStore, resolve_projects_root
+from uap.infrastructure.persistence import (
+    ProjectStore,
+    resolve_projects_root,
+    user_workspace_dir,
+)
 
-__all__ = ["ProjectStore", "resolve_projects_root"]
+__all__ = ["ProjectStore", "resolve_projects_root", "user_workspace_dir"]

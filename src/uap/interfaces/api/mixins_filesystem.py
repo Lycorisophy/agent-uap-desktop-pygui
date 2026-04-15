@@ -6,19 +6,25 @@ import os
 import subprocess
 import sys
 
+from uap.infrastructure.persistence.project_store import user_workspace_dir
+
 from uap.interfaces.api._log import _LOG
 
 
 class FilesystemApiMixin:
     def get_project_folder(self, project_id: str) -> dict:
-        """返回项目本地根目录绝对路径。"""
+        """返回用户「项目空间」目录（~/.uap/workspace/{id}），必要时回退到元数据目录。"""
         try:
             project = self.project_store.get_project(project_id)
             if not project:
                 return {"success": False, "error": "项目不存在"}
             folder_path = (project.folder_path or project.workspace or "").strip()
             if not folder_path or not os.path.isdir(folder_path):
-                folder_path = str(self.project_store.resolve_project_directory(project_id))
+                uws = str(user_workspace_dir(project_id))
+                if os.path.isdir(uws):
+                    folder_path = uws
+                else:
+                    folder_path = str(self.project_store.resolve_project_directory(project_id))
             return {
                 "success": True,
                 "folder_path": folder_path,

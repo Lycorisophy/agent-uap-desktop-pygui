@@ -31,6 +31,7 @@ class SkillCategory(str, Enum):
     FEATURE = "feature"             # 特征工程
     MODEL = "model"                 # 模型训练（ML 流水线）
     MODELING = "modeling"           # 复杂系统建模（与 uap.skill.models.SkillCategory 对齐）
+    TOOL = "tool"                    # 智能体原生工具（文件访问等，与 file_access_skill 对齐）
     POSTPROCESS = "postprocess"     # 后处理
     ANALYSIS = "analysis"           # 分析
     VISUALIZATION = "visualization"  # 可视化

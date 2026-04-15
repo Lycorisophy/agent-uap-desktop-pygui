@@ -33,7 +33,7 @@ from uap.project.models import (
     Variable,
     Relation,
 )
-from uap.infrastructure.persistence.project_store import ProjectStore
+from uap.infrastructure.persistence.project_store import ProjectStore, user_workspace_dir
 
 _LOG = logging.getLogger("uap.project_service")
 
@@ -618,6 +618,9 @@ class ProjectService:
 
             proj_dir = Path(project.folder_path or project.workspace or "")
             if not str(proj_dir) or not proj_dir.is_dir():
+                proj_dir = user_workspace_dir(project_id)
+                proj_dir.mkdir(parents=True, exist_ok=True)
+            if not proj_dir.is_dir():
                 proj_dir = self._store.resolve_project_directory(project_id)
             file_skill = create_file_access_skill(project_folder=str(proj_dir))
             skills_registry["file_access"] = file_skill
