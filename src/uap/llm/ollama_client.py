@@ -4,11 +4,16 @@ Ollama客户端封装
 """
 
 import json
+import logging
 from typing import Optional, Generator, Any
 from dataclasses import dataclass
 from enum import Enum
 
 import httpx
+
+# 配置日志
+_LOG = logging.getLogger("uap.ollama")
+_LOG.setLevel(logging.DEBUG)
 
 
 class OllamaModel:
@@ -53,6 +58,12 @@ class OllamaClient:
     """
     
     def __init__(self, config: Optional[OllamaConfig] = None):
+        """
+        初始化Ollama客户端
+        
+        Args:
+            config: Ollama配置
+        """
         self.config = config or OllamaConfig()
         self.client = httpx.Client(
             base_url=self.config.base_url,
@@ -127,23 +138,33 @@ class OllamaClient:
         if options:
             payload["options"] = options
         
+        _LOG.info("[Ollama] chat request: model=%s, msg_count=%d, stream=%s", 
+                  model, len(messages), stream)
+        
+        # 使用Ollama原生API
+        api_path = "/api/chat"
+        
         if stream:
-            return self._stream_chat(payload)
+            return self._stream_chat(payload, api_path)
         else:
-            response = self.client.post("/api/chat", json=payload)
-            return response.json()
+            response = self.client.post(api_path, json=payload)
+            _LOG.info("[Ollama] chat response: status=%d", response.status_code)
+            result = response.json()
+            _LOG.debug("[Ollama] response: %s", str(result)[:200])
+            return result
     
-    def _stream_chat(self, payload: dict) -> Generator[dict, None, None]:
+    def _stream_chat(self, payload: dict, api_path: str = "/api/chat") -> Generator[dict, None, None]:
         """
         流式聊天请求生成器
         
         Args:
             payload: 请求载荷
+            api_path: API路径
             
         Yields:
             dict: 流式响应块
         """
-        with self.client.stream("POST", "/api/chat", json=payload) as response:
+        with self.client.stream("POST", api_path, json=payload) as response:
             for line in response.iter_lines():
                 if line:
                     try:

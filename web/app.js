@@ -85,6 +85,21 @@ window.uapAPI = {
 // ==================== 初始化 ====================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 配置前端日志
+    const originalConsoleLog = console.log;
+    const originalConsoleError = console.error;
+    
+    // 添加时间戳前缀
+    const formatTime = () => new Date().toISOString().split('T')[1].slice(0, 8);
+    
+    console.log = function(...args) {
+        originalConsoleLog(`[${formatTime()}] [FRONTEND]`, ...args);
+    };
+    
+    console.error = function(...args) {
+        originalConsoleError(`[${formatTime()}] [FRONTEND-ERROR]`, ...args);
+    };
+    
     initializeApp();
 });
 
@@ -139,14 +154,16 @@ function switchView(viewName) {
 // ==================== 项目管理 ====================
 
 async function loadProjects() {
+    console.log('[API] Loading projects...');
     try {
         if (window.pywebview) {
             const projects = await window.pywebview.api.get_projects();
+            console.log('[API] get_projects returned:', projects);
             state.projects = projects || [];
             renderProjectGrid();
         }
     } catch (e) {
-        console.error('Failed to load projects:', e);
+        console.error('[API] Failed to load projects:', e);
         // 演示数据
         state.projects = [];
         renderProjectGrid();
@@ -371,6 +388,8 @@ async function sendModelingMessage() {
         return;
     }
     
+    console.log('[Modeling] Sending message:', message.substring(0, 50) + '...');
+    
     // 添加用户消息
     appendChatMessage({
         type: 'user',
@@ -389,11 +408,13 @@ async function sendModelingMessage() {
     });
     
     try {
+        console.log('[Modeling] Calling modeling_chat API for project:', state.currentProject.id);
         if (window.pywebview) {
             const response = await window.pywebview.api.modeling_chat(
                 state.currentProject.id,
                 message
             );
+            console.log('[Modeling] API response:', response);
             removeLoadingMessage(loadingId);
             if (response) {
                 appendChatMessage({
@@ -417,7 +438,7 @@ async function sendModelingMessage() {
             }, 1000);
         }
     } catch (e) {
-        console.error('建模失败:', e);
+        console.error('[Modeling] Modeling failed:', e);
         removeLoadingMessage(loadingId);
         showToast('建模失败: ' + e.message, 'error');
     }
@@ -674,22 +695,48 @@ function renderSettings() {
 
 async function saveSettings() {
     const settings = {
-        llmProvider: document.getElementById('llmProvider')?.value,
-        llmModel: document.getElementById('llmModel')?.value,
-        llmBaseUrl: document.getElementById('llmBaseUrl')?.value,
-        defaultFrequency: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
-        defaultHorizon: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
+        llm: {
+            provider: document.getElementById('llmProvider')?.value || 'ollama',
+            model: document.getElementById('llmModel')?.value || 'llama3.2',
+            base_url: document.getElementById('llmBaseUrl')?.value || 'http://127.0.0.1:11434'
+        },
+        prediction_defaults: {
+            default_frequency_sec: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
+            default_horizon_sec: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
+        }
     };
+    
+    console.log('[Settings] Saving:', settings);
     
     try {
         if (window.pywebview) {
-            await window.pywebview.api.save_settings(settings);
+            const result = await window.pywebview.api.update_config(settings);
+            console.log('[Settings] Save result:', result);
+            if (result.success) {
+                state.settings = {
+                    llmProvider: settings.llm.provider,
+                    llmModel: settings.llm.model,
+                    llmBaseUrl: settings.llm.base_url,
+                    defaultFrequency: settings.prediction_defaults.default_frequency_sec,
+                    defaultHorizon: settings.prediction_defaults.default_horizon_sec
+                };
+                showToast('设置已保存到本地', 'success');
+            } else {
+                showToast('保存失败: ' + (result.error || '未知错误'), 'error');
+            }
+        } else {
+            state.settings = {
+                llmProvider: settings.llm.provider,
+                llmModel: settings.llm.model,
+                llmBaseUrl: settings.llm.base_url,
+                defaultFrequency: settings.prediction_defaults.default_frequency_sec,
+                defaultHorizon: settings.prediction_defaults.default_horizon_sec
+            };
+            showToast('演示模式: 设置已保存', 'info');
         }
-        state.settings = settings;
-        showToast('设置已保存', 'success');
     } catch (e) {
-        console.error('保存设置失败:', e);
-        showToast('保存设置失败', 'error');
+        console.error('[Settings] Save failed:', e);
+        showToast('保存设置失败: ' + e.message, 'error');
     }
 }
 

@@ -8,7 +8,18 @@ import sys
 import webview
 import threading
 import argparse
+import logging
 from pathlib import Path
+
+# 配置日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+    datefmt='%H:%M:%S'
+)
+
+_LOG = logging.getLogger("uap.main")
+_LOG.info("UAP application starting...")
 
 # 添加src目录到路径
 src_dir = Path(__file__).parent / "src"
@@ -29,14 +40,18 @@ class UAPApplication:
 
     def start(self):
         """启动应用"""
+        _LOG.info("Starting UAP application...")
         # 初始化API
         self.api = UAPApi(self.config)
+        _LOG.info("API initialized")
 
         # 启动调度器
         self.api.scheduler.start()
+        _LOG.info("Scheduler started")
 
         # 创建窗口
         self._create_window()
+        _LOG.info("Window created")
 
         # 启动PyWebView
         webview.start(self._on_start, debug=self.debug)
@@ -284,7 +299,7 @@ class UAPApplication:
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="cancelProjectBtn">取消</button>
                 <button class="btn btn-primary" id="confirmCreateBtn">创建</button>
-</div>
+            </div>
         </div>
     </div>
 
@@ -1216,8 +1231,6 @@ window.cardManager.onCardResponse = (response) => {
         }
     }
 };
-
-
 
     // 卡片相关方法
     showMethodSelectionCard() {

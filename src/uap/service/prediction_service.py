@@ -95,10 +95,8 @@ class PredictionService:
         self._store.update_project(project)
         
         try:
-            _LOG.info(
-                "开始预测: project=%s, method=%s, horizon=%ds",
-                project.id, config.method, config.horizon_sec
-            )
+            _LOG.info("[PredictionService] Starting prediction: project=%s, method=%s, horizon=%ds",
+                project.id, config.method, config.horizon_sec)
             
             # 检查是否有系统模型
             if project.system_model is None:
@@ -155,11 +153,9 @@ class PredictionService:
             project.set_idle()
             self._store.update_project(project)
             
-            _LOG.info(
-                "预测完成: project=%s, result_id=%s, method=%s, points=%d, time_ms=%d",
+            _LOG.info("[PredictionService] Prediction completed: project=%s, result_id=%s, method=%s, points=%d, time_ms=%d",
                 project.id, result.id, result.method_used,
-                len(result.trajectory), result.execution_time_ms
-            )
+                len(result.trajectory), result.execution_time_ms)
             
             return result
             

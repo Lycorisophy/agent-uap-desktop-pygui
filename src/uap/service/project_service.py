@@ -50,7 +50,28 @@ class ProjectService:
         """
         self._store = store
         self._cfg = cfg
-        self._extractor = extractor or create_default_extractor()
+        # 使用配置中的模型创建提取器
+        from uap.llm.ollama_client import OllamaClient, OllamaConfig
+        from uap.llm.model_extractor import ModelExtractor
+        ollama_cfg = OllamaConfig(
+            base_url=cfg.llm.base_url,
+            model=cfg.llm.model,
+        )
+        ollama_client = OllamaClient(ollama_cfg)
+        self._extractor = extractor or ModelExtractor(ollama_client)
+    
+    def refresh_extractor(self):
+        """重新创建提取器以使用最新配置"""
+        from uap.llm.ollama_client import OllamaClient, OllamaConfig
+        from uap.llm.model_extractor import ModelExtractor
+        ollama_cfg = OllamaConfig(
+            base_url=self._cfg.llm.base_url,
+            model=self._cfg.llm.model,
+        )
+        ollama_client = OllamaClient(ollama_cfg)
+        self._extractor = ModelExtractor(ollama_client)
+        _LOG = logging.getLogger("uap.project_service")
+        _LOG.info(f"Extractor refreshed with model={self._cfg.llm.model}")
     
     @property
     def store(self) -> ProjectStore:

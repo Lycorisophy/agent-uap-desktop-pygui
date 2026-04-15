@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -40,7 +40,6 @@
                 </div>
             </div>
         </aside>
-
         <!-- 主内容区 -->
         <main class="main-content">
             <!-- 项目列表视图 -->
@@ -49,28 +48,21 @@
                     <h2>项目列表</h2>
                     <button class="btn btn-primary" id="createProjectBtn">+ 新建项目</button>
                 </div>
-                <div class="project-grid" id="projectGrid">
-                    <!-- 项目卡片将通过JS动态加载 -->
-                </div>
+                <div class="project-grid" id="projectGrid"></div>
             </section>
-
             <!-- 系统建模视图 -->
             <section id="modelingView" class="view">
                 <div class="view-header">
                     <h2>系统建模</h2>
                     <div class="project-selector">
-                        <select id="modelingProjectSelect">
-                            <option value="">选择项目...</option>
-                        </select>
+                        <select id="modelingProjectSelect"><option value="">选择项目...</option></select>
                     </div>
                 </div>
                 <div class="modeling-container">
                     <div class="modeling-chat">
                         <div class="chat-messages" id="chatMessages">
                             <div class="message system">
-                                <div class="message-content">
-                                    欢迎使用系统建模工具。您可以通过对话方式描述您的复杂系统，我会帮您提取系统模型。
-                                </div>
+                                <div class="message-content">欢迎使用系统建模工具。您可以通过对话方式描述您的复杂系统，我会帮您提取系统模型。</div>
                             </div>
                         </div>
                         <div class="chat-input">
@@ -80,21 +72,16 @@
                     </div>
                     <div class="model-preview">
                         <h3>系统模型预览</h3>
-                        <div class="model-content" id="modelPreview">
-                            <p class="placeholder">尚未提取模型</p>
-                        </div>
+                        <div class="model-content" id="modelPreview"><p class="placeholder">尚未提取模型</p></div>
                     </div>
                 </div>
             </section>
-
             <!-- 预测分析视图 -->
             <section id="predictionView" class="view">
                 <div class="view-header">
                     <h2>预测分析</h2>
                     <div class="project-selector">
-                        <select id="predictionProjectSelect">
-                            <option value="">选择项目...</option>
-                        </select>
+                        <select id="predictionProjectSelect"><option value="">选择项目...</option></select>
                     </div>
                 </div>
                 <div class="prediction-container">
@@ -115,7 +102,7 @@
                                 <label>预测时长</label>
                                 <select id="predictionHorizon">
                                     <option value="86400">1天</option>
-                                    <option value="259200">3天</option>
+                                    <option value="259200" selected>3天</option>
                                     <option value="604800">7天</option>
                                     <option value="2592000">30天</option>
                                 </select>
@@ -126,29 +113,18 @@
                                 <button class="btn btn-secondary" id="stopSchedulerBtn">停止定时</button>
                             </div>
                         </div>
-                        <div class="task-status" id="taskStatus">
-                            <p>任务状态: 未启动</p>
-                        </div>
+                        <div class="task-status" id="taskStatus"><p>任务状态: 未启动</p></div>
                     </div>
                     <div class="prediction-results">
                         <h3>预测结果</h3>
-                        <div class="results-chart" id="resultsChart">
-                            <div class="chart-placeholder">
-                                <p>暂无预测数据</p>
-                            </div>
-                        </div>
-                        <div class="results-list" id="resultsList">
-                            <!-- 预测结果列表 -->
-                        </div>
+                        <div class="results-chart" id="resultsChart"><div class="chart-placeholder"><p>暂无预测数据</p></div></div>
+                        <div class="results-list" id="resultsList"></div>
                     </div>
                 </div>
             </section>
-
             <!-- 设置视图 -->
             <section id="settingsView" class="view">
-                <div class="view-header">
-                    <h2>设置</h2>
-                </div>
+                <div class="view-header"><h2>设置</h2></div>
                 <div class="settings-container">
                     <div class="settings-section">
                         <h3>LLM 配置</h3>
@@ -191,7 +167,6 @@
             </section>
         </main>
     </div>
-
     <!-- 创建项目模态框 -->
     <div class="modal" id="createProjectModal">
         <div class="modal-content">
@@ -212,10 +187,10 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="cancelProjectBtn">取消</button>
                 <button class="btn btn-primary" id="confirmCreateBtn">创建</button>
-</div>
+            </div>
         </div>
     </div>
-
+    <script src="visualize.js"></script>
     <script src="app.js"></script>
     <script src="cards.js"></script>
 </body>

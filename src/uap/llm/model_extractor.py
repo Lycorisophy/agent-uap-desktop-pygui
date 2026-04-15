@@ -5,8 +5,13 @@
 
 import json
 import re
+import logging
 from typing import Optional, Any
 from dataclasses import dataclass
+
+# 配置日志
+_LOG = logging.getLogger("uap.model_extractor")
+_LOG.setLevel(logging.DEBUG)
 
 from uap.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import SystemModel, Variable, Relation, Constraint, ModelSource
@@ -137,13 +142,31 @@ class ModelExtractor:
         
         try:
             # 调用LLM
+            _LOG.info("[Extractor] Calling LLM with %d messages", len(chat_messages))
             response = self.client.chat(chat_messages)
+            _LOG.info("[Extractor] LLM response received, keys=%s", list(response.keys()) if isinstance(response, dict) else "not dict")
             
-            # 解析响应
-            content = response.get("message", {}).get("content", "")
-            return self._parse_response(content)
+            # 解析响应 - Ollama原生格式: {"message": {"content": "..."}}
+            content = None
+            if isinstance(response, dict):
+                if "message" in response:
+                    content = response.get("message", {}).get("content", "")
+                    _LOG.debug("[Extractor] Ollama format content extracted, len=%d", len(content) if content else 0)
+            
+            if not content:
+                _LOG.warning("[Extractor] No content in response: %s", str(response)[:200])
+                return ExtractionResult(
+                    success=False,
+                    error="无法从响应中提取内容",
+                    raw_response=str(response)[:500]
+                )
+            
+            result = self._parse_response(content)
+            _LOG.info("[Extractor] Parsed result: success=%s, model=%s", result.success, result.model is not None)
+            return result
             
         except Exception as e:
+            _LOG.exception("[Extractor] LLM call failed: %s", str(e))
             return ExtractionResult(
                 success=False,
                 error=f"LLM调用失败: {str(e)}"
@@ -209,18 +232,24 @@ class ModelExtractor:
         Returns:
             ExtractionResult: 解析结果
         """
+        _LOG.debug("[Extractor] Parsing response, content_len=%d", len(content))
+        
         # 尝试提取JSON（支持markdown代码块）
         json_str = self._extract_json(content)
         
         if not json_str:
+            _LOG.warning("[Extractor] Failed to extract JSON from response")
             return ExtractionResult(
                 success=False,
                 error="无法从响应中提取JSON格式数据",
                 raw_response=content[:500]  # 保留前500字符用于调试
             )
         
+        _LOG.debug("[Extractor] JSON extracted, json_len=%d", len(json_str))
+        
         try:
             data = json.loads(json_str)
+            _LOG.debug("[Extractor] JSON parsed, keys=%s", list(data.keys()))
             
             # 验证必需字段
             if "variables" not in data:
@@ -230,33 +259,56 @@ class ModelExtractor:
                     raw_response=content[:500]
                 )
             
-            # 构建模型对象
+            # 构建模型对象 - 处理字段名不匹配
             variables = []
             for v in data.get("variables", []):
+                # 处理unit字段：LLM可能返回null或没有这个字段
+                unit_val = v.get("unit")
+                if unit_val is None:
+                    unit_val = ""
+                # 处理value_type字段映射
+                var_type = v.get("type") or v.get("value_type", "float")
+                if var_type == "continuous":
+                    var_type = "float"
+                elif var_type == "discrete":
+                    var_type = "int"
+                # 处理range字段映射到bounds
+                range_data = v.get("range")
+                bounds_min = bounds_max = None
+                if isinstance(range_data, dict):
+                    bounds_min = range_data.get("min")
+                    bounds_max = range_data.get("max")
+                
                 variables.append(Variable(
-                    name=v.get("name", ""),
-                    type=v.get("type", "continuous"),
+                    name=v.get("name", "") or f"var_{len(variables)}",
+                    value_type=var_type,
                     description=v.get("description", ""),
-                    unit=v.get("unit"),
-                    range=v.get("range")
+                    unit=str(unit_val) if unit_val else "",
+                    bounds_min=bounds_min,
+                    bounds_max=bounds_max
                 ))
             
             relations = []
             for r in data.get("relations", []):
+                # 处理relation_type字段
+                rel_type = r.get("type") or r.get("relation_type", "causal")
                 relations.append(Relation(
-                    from_var=r.get("from_var", ""),
-                    to_var=r.get("to_var", ""),
-                    type=r.get("type", "causal"),
+                    name=r.get("name", r.get("from_var", "") + "_to_" + r.get("to_var", "")),
+                    description=r.get("description", ""),
+                    relation_type=rel_type,
                     expression=r.get("expression"),
-                    description=r.get("description", "")
+                    cause_vars=[r.get("from_var", "")] if r.get("from_var") else [],
+                    effect_var=r.get("to_var", "") or r.get("effect_var", "")
                 ))
             
             constraints = []
             for c in data.get("constraints", []):
+                constraint_type = c.get("type") or c.get("constraint_type", "boundary")
                 constraints.append(Constraint(
-                    type=c.get("type", "range"),
-                    expression=c.get("expression", ""),
-                    description=c.get("description", "")
+                    name=c.get("name", f"constraint_{len(constraints)}"),
+                    description=c.get("description", ""),
+                    constraint_type=constraint_type,
+                    expression=c.get("expression", c.get("description", ""))
                 ))
             
             model = SystemModel(
@@ -380,5 +432,13 @@ def create_default_extractor() -> ModelExtractor:
     Returns:
         ModelExtractor: 默认提取器实例
     """
-    client = OllamaClient()
+    from uap.config import load_config
+    cfg = load_config()
+    
+    # 使用配置文件中的LLM设置
+    ollama_config = OllamaConfig(
+        base_url=cfg.llm.base_url,
+        model=cfg.llm.model,
+    )
+    client = OllamaClient(ollama_config)
     return ModelExtractor(client)
