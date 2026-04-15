@@ -50,6 +50,7 @@ from uap.skill.models import (
     SkillSession,
 )
 from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
 from uap.prompts import PromptId, render
 from uap.react.context_helpers import format_system_model_for_prompt
 
@@ -375,13 +376,11 @@ class ReactAgent:
         与 **工具系统**的契约：Action 必须为注册表中的 skill_id，或 FINAL_ANSWER /
         ask_user 等保留字。
         """
-        content = ""
-        if hasattr(response, "content"):
+        # Ollama / OpenAI 兼容客户端均返回 dict；须走 message.content，不能用顶层 content
+        if hasattr(response, "content") and not isinstance(response, dict):
             content = response.content
-        elif isinstance(response, dict):
-            content = response.get("content", "")
         else:
-            content = str(response)
+            content = assistant_text_from_chat_response(response)
 
         result = {"thought": "", "action": "", "action_input": {}, "needs_confirmation": False}
 

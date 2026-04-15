@@ -57,3 +57,12 @@ Action Input: {"action": "list", "path": "."}
     assert out["thought"] == "思考一步"
     assert out["action"] == "file_access"
     assert out["action_input"] == {"action": "list", "path": "."}
+
+    ollama_dict = {
+        "message": {
+            "role": "assistant",
+            "content": raw,
+        }
+    }
+    out2 = agent._parse_llm_response(ollama_dict)
+    assert out2["action"] == "file_access"

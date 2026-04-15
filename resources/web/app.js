@@ -103,6 +103,31 @@ window.uapAPI = {
 
 // ==================== 初始化 ====================
 
+/** PyWebView 在 DOMContentLoaded 时可能尚未注入 window.pywebview，需等待 pywebviewready 或轮询 api。 */
+async function waitForPywebviewApi(maxMs = 12000) {
+    if (window.pywebview && window.pywebview.api) return true;
+    await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearInterval(iv);
+            clearTimeout(to);
+            window.removeEventListener('pywebviewready', onReady);
+            resolve();
+        };
+        const onReady = () => {
+            if (window.pywebview && window.pywebview.api) finish();
+        };
+        window.addEventListener('pywebviewready', onReady);
+        const iv = setInterval(() => {
+            if (window.pywebview && window.pywebview.api) finish();
+        }, 50);
+        const to = setTimeout(finish, maxMs);
+    });
+    return !!(window.pywebview && window.pywebview.api);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
 });
@@ -118,7 +143,8 @@ async function initializeApp() {
     bindSettingsEvents();
     bindModalEvents();
     
-    // 加载初始数据
+    await waitForPywebviewApi();
+    // 加载初始数据（依赖 pywebview.api）
     await loadProjects();
     await loadSettings();
     

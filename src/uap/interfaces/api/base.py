@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from uap.config import load_config, UAPConfig
@@ -19,9 +20,10 @@ class UAPApiBase:
 
     def __init__(self, config: Optional[UAPConfig] = None):
         self.config = config or load_config()
-        projects_root = self.config.storage.projects_root or os.path.join(
+        raw_root = self.config.storage.projects_root or os.path.join(
             os.path.expanduser("~"), ".uap", "projects"
         )
+        projects_root = str(Path(raw_root).expanduser().resolve())
         self.project_store = ProjectStore(projects_root, uap_cfg=self.config)
         self.project_service = ProjectService(self.project_store, self.config)
         self.prediction_service = PredictionService(self.project_store, self.config)
