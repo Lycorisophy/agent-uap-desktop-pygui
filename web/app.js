@@ -196,6 +196,11 @@ function renderProjectGrid() {
             <div class="project-card-footer">
                 <span class="project-date">${formatDate(project.created_at)}</span>
                 <div class="project-actions">
+                    <button class="btn-icon" onclick="openProjectFolder('${project.id}')" title="打开本地文件夹">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </button>
                     <button class="btn-icon" onclick="openProject('${project.id}')" title="打开">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
@@ -203,7 +208,7 @@ function renderProjectGrid() {
                             <line x1="10" y1="14" x2="21" y2="3"></line>
                         </svg>
                     </button>
-                    <button class="btn-icon danger" onclick="deleteProject('${project.id}')" title="删除">
+                    <button class="btn-icon danger" onclick="deleteProject('${project.id}', '${escapeHtml(project.name)}')" title="删除">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -235,9 +240,54 @@ async function openProject(projectId) {
     }
 }
 
-async function deleteProject(projectId) {
-    if (!confirm('确定要删除这个项目吗？')) return;
+async function openProjectFolder(projectId) {
+    try {
+        if (window.pywebview) {
+            const result = await window.pywebview.api.get_project_folder(projectId);
+            if (result && result.folder_path) {
+                window.pywebview.api.open_folder(result.folder_path);
+                showToast('正在打开项目文件夹', 'info');
+            } else {
+                showToast('无法获取项目路径', 'error');
+            }
+        } else {
+            showToast('演示模式：项目文件夹路径已获取', 'info');
+        }
+    } catch (e) {
+        console.error('Failed to open project folder:', e);
+        showToast('打开项目文件夹失败', 'error');
+    }
+}
+
+async function deleteProject(projectId, projectName) {
+    // 创建确认模态框
+    const modal = document.getElementById('deleteConfirmModal') || createDeleteConfirmModal();
     
+    document.getElementById('deleteProjectName').textContent = projectName;
+    document.getElementById('deleteConfirmInput').value = '';
+    document.getElementById('deleteConfirmBtn').disabled = true;
+    
+    // 监听输入变化
+    const input = document.getElementById('deleteConfirmInput');
+    const confirmBtn = document.getElementById('deleteConfirmBtn');
+    
+    const checkInput = () => {
+        confirmBtn.disabled = input.value.trim() !== projectName;
+    };
+    input.oninput = checkInput;
+    
+    // 设置确认回调
+    confirmBtn.onclick = async () => {
+        if (input.value.trim() === projectName) {
+            modal.classList.remove('active');
+            await performDelete(projectId);
+        }
+    };
+    
+    modal.classList.add('active');
+}
+
+async function performDelete(projectId) {
     try {
         if (window.pywebview) {
             await window.pywebview.api.delete_project(projectId);
@@ -247,6 +297,39 @@ async function deleteProject(projectId) {
         console.error('Failed to delete project:', e);
         showToast('删除项目失败', 'error');
     }
+}
+
+function createDeleteConfirmModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'deleteConfirmModal';
+    modal.innerHTML = `
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h3>确认删除项目</h3>
+                <button class="modal-close" onclick="this.closest('.modal').classList.remove('active')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除项目 <strong id="deleteProjectName"></strong> 吗？</p>
+                <p class="hint">此操作不可恢复，项目文件夹将永久删除。</p>
+                <div class="form-group">
+                    <label>请输入项目名称进行确认：</label>
+                    <input type="text" id="deleteConfirmInput" placeholder="输入项目名称">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="this.closest('.modal').classList.remove('active')">取消</button>
+                <button class="btn btn-danger" id="deleteConfirmBtn" disabled>确认删除</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('active');
+    });
+    
+    return modal;
 }
 
 // ==================== 模态框 ====================
@@ -790,6 +873,7 @@ function createToastContainer() {
 
 // 暴露全局函数
 window.openProject = openProject;
+window.openProjectFolder = openProjectFolder;
 window.deleteProject = deleteProject;
 window.sendModelingMessage = sendModelingMessage;
 window.startPrediction = startPrediction;

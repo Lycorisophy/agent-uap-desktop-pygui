@@ -565,5 +565,49 @@ class UAPApi:
         cards = self.card_manager.get_card_history_for_project(project_id, limit)
         return [card.to_dict() for card in cards]
 
+    # ==================== 文件夹操作API ====================
+
+    def get_project_folder(self, project_id: str) -> dict:
+        """
+        Get project folder path
+        Returns the absolute path to the project's local folder
+        """
+        try:
+            project = self.project_store.get_project(project_id)
+            if not project:
+                return {"success": False, "error": "项目不存在"}
+            return {
+                "success": True,
+                "folder_path": project.folder_path,
+                "project_name": project.name
+            }
+        except Exception as e:
+            _LOG.error(f"获取项目文件夹失败: {e}")
+            return {"success": False, "error": str(e)}
+
+    def open_folder(self, folder_path: str) -> dict:
+        """
+        Open folder in system file explorer
+        Works on Windows, macOS, and Linux
+        """
+        import subprocess
+        import sys
+        
+        try:
+            if not os.path.exists(folder_path):
+                return {"success": False, "error": "文件夹不存在"}
+            
+            if sys.platform == "win32":
+                os.startfile(folder_path)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", folder_path])
+            else:
+                subprocess.run(["xdg-open", folder_path])
+            
+            return {"success": True}
+        except Exception as e:
+            _LOG.error(f"打开文件夹失败: {e}")
+            return {"success": False, "error": str(e)}
+
 
 from datetime import datetime

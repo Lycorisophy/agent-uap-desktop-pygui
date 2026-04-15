@@ -21,12 +21,12 @@
                     <span>项目列表</span>
                 </button>
                 <button class="nav-item" data-view="modeling">
-                    <span class="icon">🔧</span>
-                    <span>系统建模</span>
+                    <span class="icon">💬</span>
+                    <span>智能对话模式</span>
                 </button>
                 <button class="nav-item" data-view="prediction">
-                    <span class="icon">📊</span>
-                    <span>预测分析</span>
+                    <span class="icon">⏰</span>
+                    <span>定时预测模式</span>
                 </button>
                 <button class="nav-item" data-view="settings">
                     <span class="icon">⚙️</span>
@@ -53,7 +53,7 @@
             <!-- 系统建模视图 -->
             <section id="modelingView" class="view">
                 <div class="view-header">
-                    <h2>系统建模</h2>
+                    <h2>智能对话模式 <span class="mode-badge">RADH</span></h2>
                     <div class="project-selector">
                         <select id="modelingProjectSelect"><option value="">选择项目...</option></select>
                     </div>
@@ -62,7 +62,7 @@
                     <div class="modeling-chat">
                         <div class="chat-messages" id="chatMessages">
                             <div class="message system">
-                                <div class="message-content">欢迎使用系统建模工具。您可以通过对话方式描述您的复杂系统，我会帮您提取系统模型。</div>
+                                <div class="message-content">欢迎使用智能对话模式（RADH）。<br>• R (ReAct): 智能思考行动模式<br>• D (DST): 对话状态追踪<br>• H (HITL): 人在环确认<br><br>您可以通过对话描述复杂系统，我会自动建模、定时预测。如需帮助，可随时问我。</div>
                             </div>
                         </div>
                         <div class="chat-input">
@@ -79,7 +79,7 @@
             <!-- 预测分析视图 -->
             <section id="predictionView" class="view">
                 <div class="view-header">
-                    <h2>预测分析</h2>
+                    <h2>定时预测模式</h2>
                     <div class="project-selector">
                         <select id="predictionProjectSelect"><option value="">选择项目...</option></select>
                     </div>
