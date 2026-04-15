@@ -801,7 +801,7 @@ async function sendModelingMessage() {
                 removeLoadingMessage(loadingId);
                 appendChatMessage({
                     type: 'assistant',
-                    content: `已收到您的描述：「${message}」。正在提取系统模型...\n\n检测到可能的系统类型：动态系统\n建议变量：x(t), y(t)\n状态方程：dx/dt = f(x, y)`,
+                    content: `已收到：「${message}」（演示模式）\n\n我会像真实环境一样先澄清目标与时间范围，再逐步建模。请连接后端以使用完整智能体。`,
                     timestamp: new Date().toISOString()
                 });
             }, 1000);
@@ -950,7 +950,7 @@ async function startPrediction() {
     }
     
     if (!state.currentProject.model) {
-        showToast('该项目尚未建模，请先进行系统建模', 'warning');
+        showToast('该项目尚未完成建模或数据配置。请先在对话里用一句话开始目标，完成建模后再开定时预测。', 'warning');
         return;
     }
     

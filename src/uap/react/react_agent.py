@@ -51,6 +51,7 @@ from uap.skill.models import (
 )
 from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 from uap.prompts import PromptId, render
+from uap.react.context_helpers import format_system_model_for_prompt
 
 _LOG = logging.getLogger("uap.react")
 
@@ -135,8 +136,8 @@ class ReactAgent:
 
         Args:
             task: 用户自然语言任务（进入 DST 与首条上下文）
-            context: **Harness 注入槽**：如 ``project_id``、``existing_model``、
-                RAG 片段等；键名由 ``ProjectService.react_modeling`` 约定。
+            context: **Harness 注入槽**：如 ``project_id``、``system_model``（摘要）、
+                ``existing_model``（dict，可省略）、RAG 片段等；键名由 ``ProjectService.react_modeling`` 约定。
 
         Returns:
             含 ``steps``、``dst_state``，供 API 层序列化给前端「进程 / DST」面板。
@@ -301,11 +302,18 @@ class ReactAgent:
         # DST：把「槽位填充进度」转成自然语言，引导模型按阶段推进（上下文工程）
         dst_summary = self._format_dst_summary(dst_session)
 
+        # system_model：优先摘要字符串；兼容仅传 existing_model(dict) 的调用方
+        system_model = (extra_context.get("system_model") or "").strip()
+        if not system_model:
+            em = extra_context.get("existing_model")
+            if em:
+                system_model = format_system_model_for_prompt(em)
+
         # --- 提示词资产：``react_decision_user.md`` 须与 _parse_llm_response 同步 ---
         return render(
             PromptId.REACT_DECISION_USER,
             task=task,
-            system_model=extra_context.get("system_model", "") or "",
+            system_model=system_model,
             dst_summary=dst_summary,
             skills_desc=skills_desc,
             trajectory=trajectory,

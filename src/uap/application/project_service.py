@@ -6,8 +6,8 @@ ProjectService —— **领域编排层**（介于 Harness ``UAPApi`` 与存储 
 - **建模**：``modeling_chat`` / ``react_modeling`` —— 组装 LLM、ReAct、技能注册表、
   DST、卡片（**RADH = ReAct + DST + HITL**）。
 - **记忆**：对话 JSON、系统模型文件经 ``ProjectStore``；可选向量检索在 API/服务扩展。
-- **提示词/上下文**：ReAct 的内置模板在 ``ReactAgent._build_context``；本服务负责
-  **注入业务事实**（项目路径、已有模型字典等）。
+- **提示词/上下文**：ReAct 主模板在 ``uap.prompts``；本服务负责 **注入业务事实**
+  （含 ``system_model`` 文本摘要与 ``existing_model`` dict）。
 
 不宜在本类直接写 PyWebView 或 HTTP 路由逻辑，保持可单测。
 ================================================================================
@@ -34,6 +34,7 @@ from uap.project.models import (
     Relation,
 )
 from uap.infrastructure.persistence.project_store import ProjectStore, user_workspace_dir
+from uap.react.context_helpers import format_system_model_for_prompt
 
 _LOG = logging.getLogger("uap.project_service")
 
@@ -639,11 +640,17 @@ class ProjectService:
             if card_manager:
                 card_integration = ReactCardIntegration(card_manager)
 
-            # 6. 构建上下文
+            # 6. 构建上下文（system_model 为 ReAct 模板可读摘要；existing_model 保留 dict 供扩展）
+            existing = (
+                project.system_model.model_dump() if project.system_model else None
+            )
             context = {
                 "project_id": project_id,
                 "project_name": project.name,
-                "existing_model": project.system_model.model_dump() if project.system_model else None,
+                "existing_model": existing,
+                "system_model": format_system_model_for_prompt(project.system_model)
+                if project.system_model
+                else "",
             }
 
             # 7. 执行ReAct循环
@@ -698,15 +705,21 @@ class ProjectService:
         metadata = SkillMetadata(
             skill_id="extract_model",
             name="提取系统模型",
-            description="从对话中提取复杂系统的数学模型，包括变量、关系和约束",
+            description=(
+                "在用户已提供足够信息时，从其自然语言目标中抽取变量、关系与约束；"
+                "若用户只有一句话目标，应先通过对话或 ask_user 补全后再调用"
+            ),
             category=SkillCategory.MODELING,
             subcategory="extraction",
             input_schema={
                 "type": "object",
                 "required": ["user_description"],
                 "properties": {
-                    "user_description": {"type": "string", "description": "用户对系统的描述"}
-                }
+                    "user_description": {
+                        "type": "string",
+                        "description": "用户目标与已知信息的合并叙述（可由多轮对话拼成，不必是专业长文）",
+                    }
+                },
             },
             estimated_time=10,
             complexity=SkillComplexity.MODERATE,
@@ -743,7 +756,7 @@ class ProjectService:
         metadata = SkillMetadata(
             skill_id="define_variable",
             name="定义系统变量",
-            description="定义系统的状态变量，包括名称、类型、单位、取值范围等",
+            description="为用户关心的预测对象补充或修正一个状态变量（名称、含义、单位等，可用日常用语）",
             category=SkillCategory.MODELING,
             subcategory="variable",
             input_schema={
@@ -785,7 +798,7 @@ class ProjectService:
         metadata = SkillMetadata(
             skill_id="discover_relations",
             name="发现系统关系",
-            description="识别系统中变量之间的数学关系或物理规律",
+            description="根据用户叙述，为已关注的变量补充一条关系或因果/相关说明（不必写方程）",
             category=SkillCategory.MODELING,
             subcategory="relation",
             input_schema={
@@ -806,9 +819,10 @@ class ProjectService:
         def executor(s, from_var="", to_var="", relationship="", **kwargs):
             rel = Relation(
                 name=f"{from_var}_to_{to_var}",
-                source=from_var,
-                target=to_var,
-                description=relationship
+                description=relationship,
+                relation_type="causal",
+                cause_vars=[from_var] if from_var else [],
+                effect_var=to_var or from_var or "unknown",
             )
             return {
                 "observation": f"发现关系：{from_var} → {to_var}",
