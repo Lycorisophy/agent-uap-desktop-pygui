@@ -168,6 +168,7 @@ fix(scheduler): 修复任务重复执行问题
 | 需求报告 | `复杂系统未来势态量化预测统一智能体可行性研究与总体实施方案报告.md` | 完整需求分析和方案设计 |
 | 交接说明 | `handoff-ruyi72-to-uap.md` | 从如意72到UAP的技术交接 |
 | 架构总结 | `ruyi72-architecture-summary.md` | 如意72架构参考 |
+| **最新交接** | `HANDOFF-2026-04-15.md` | **Matrix Agent详细交接（含待完成工作）** |
 
 ### 设计指南 (`docs/设计指南/`)
 
