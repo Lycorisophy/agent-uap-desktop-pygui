@@ -28,7 +28,6 @@ from dataclasses import dataclass
 _LOG = logging.getLogger("uap.model_extractor")
 _LOG.setLevel(logging.DEBUG)
 
-from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import SystemModel, Variable, Relation, Constraint, ModelSource
 from uap.prompts import PromptId, load_raw, render
 
@@ -56,14 +55,19 @@ class ModelExtractor:
     包括变量定义、变量关系、系统约束等。
     """
     
-    def __init__(self, client: Optional[OllamaClient] = None):
+    def __init__(self, client: Optional[Any] = None):
         """
         初始化模型提取器
-        
+
         Args:
-            client: Ollama客户端实例，如果为None则创建默认客户端
+            client: 聊天客户端（须实现 ``chat(messages) -> dict``）；None 时按全局配置创建。
         """
-        self.client = client or OllamaClient()
+        if client is None:
+            from uap.config import load_config
+            from uap.infrastructure.llm.factory import create_llm_chat_client
+
+            client = create_llm_chat_client(load_config().llm)
+        self.client = client
     
     def extract_from_conversation(
         self,
@@ -397,12 +401,8 @@ def create_default_extractor() -> ModelExtractor:
         ModelExtractor: 默认提取器实例
     """
     from uap.config import load_config
+    from uap.infrastructure.llm.factory import create_llm_chat_client
+
     cfg = load_config()
-    
-    # 使用配置文件中的LLM设置
-    ollama_config = OllamaConfig(
-        base_url=cfg.llm.base_url,
-        model=cfg.llm.model,
-    )
-    client = OllamaClient(ollama_config)
+    client = create_llm_chat_client(cfg.llm)
     return ModelExtractor(client)

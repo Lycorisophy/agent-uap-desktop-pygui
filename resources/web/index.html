@@ -245,19 +245,28 @@
                             <div class="form-group">
                                 <label>提供商</label>
                                 <select id="llmProvider">
-                                    <option value="ollama">Ollama</option>
+                                    <option value="ollama">Ollama（本地）</option>
                                     <option value="openai">OpenAI</option>
                                     <option value="deepseek">DeepSeek</option>
+                                    <option value="minimax">MiniMax</option>
+                                    <option value="qwen">通义千问（DashScope 兼容）</option>
+                                    <option value="doubao">豆包（火山方舟）</option>
+                                    <option value="kimi">Kimi（Moonshot）</option>
                                 </select>
                             </div>
                             <div class="form-group">
+                                <label>API Key</label>
+                                <input type="password" id="llmApiKey" autocomplete="off" placeholder="远程厂商必填；本地 Ollama 可留空">
+                            </div>
+                            <div class="form-group">
                                 <label>模型名称</label>
-                                <input type="text" id="llmModel" placeholder="e.g., llama3.2">
+                                <input type="text" id="llmModel" placeholder="e.g., llama3.2 或 endpoint id">
                             </div>
                             <div class="form-group">
                                 <label>API Base URL</label>
-                                <input type="text" id="llmBaseUrl" placeholder="http://localhost:11434">
+                                <input type="text" id="llmBaseUrl" placeholder="http://localhost:11434 或 https://.../v1">
                             </div>
+                            <p class="hint" id="llmPresetHint" style="font-size:0.85rem;color:#666;"></p>
                         </div>
                     </div>
                     <div class="settings-section">

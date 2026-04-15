@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from uap.config import local_override_config_path
+from uap.config import local_override_config_path, llm_provider_presets
 
 from uap.interfaces.api._log import _LOG
 
@@ -11,12 +11,16 @@ class ConfigApiMixin:
     def get_config(self) -> dict:
         """Get current config（与前端字段 prediction_defaults 对齐）。"""
         pred = self.config.prediction
+        llm_dump = self.config.llm.model_dump()
+        llm_dump["api_key"] = ""
+        llm_dump["api_key_set"] = bool(self.config.llm.api_key)
         return {
             "prediction_defaults": {
                 "frequency_sec": pred.default_frequency_sec,
                 "horizon_sec": pred.default_horizon_sec,
             },
-            "llm": self.config.llm.model_dump(),
+            "llm": llm_dump,
+            "llm_presets": llm_provider_presets(),
             "storage": self.config.storage.model_dump(),
             "config_path": str(local_override_config_path()),
         }
@@ -31,21 +35,17 @@ class ConfigApiMixin:
             _LOG.info("[API] update_config called: %s", config_updates)
 
             if "llm" in config_updates:
-                llm_data = config_updates["llm"]
-                if "provider" in llm_data and llm_data["provider"]:
-                    self.config.llm.provider = llm_data["provider"]
-                if "model" in llm_data:
-                    self.config.llm.model = llm_data["model"]
-                if "base_url" in llm_data:
-                    self.config.llm.base_url = llm_data["base_url"]
-                if llm_data.get("api_key"):
-                    self.config.llm.api_key = llm_data["api_key"]
-                if "temperature" in llm_data and llm_data["temperature"] is not None:
-                    self.config.llm.temperature = float(llm_data["temperature"])
-                if "max_tokens" in llm_data and llm_data["max_tokens"] is not None:
-                    self.config.llm.max_tokens = int(llm_data["max_tokens"])
-                if "api_mode" in llm_data and llm_data["api_mode"]:
-                    self.config.llm.api_mode = llm_data["api_mode"]
+                from uap.config import LLMConfig
+
+                llm_data = dict(config_updates["llm"])
+                llm_data.pop("api_key_set", None)
+                merged = self.config.llm.model_dump()
+                for k, v in llm_data.items():
+                    if k == "api_key" and v == "":
+                        merged["api_key"] = None
+                    elif v is not None:
+                        merged[k] = v
+                self.config.llm = LLMConfig.model_validate(merged)
 
             if "prediction_defaults" in config_updates:
                 pd = config_updates["prediction_defaults"]

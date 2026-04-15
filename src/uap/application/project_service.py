@@ -21,9 +21,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from uap.config import UapConfig
+from uap.config import LLMConfig, UapConfig
 from uap.infrastructure.llm import ModelExtractor, create_default_extractor
-from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
+from uap.infrastructure.llm.factory import create_llm_chat_client
 from uap.project.models import (
     ModelSource,
     PredictionConfig,
@@ -63,28 +63,25 @@ class ProjectService:
         """
         self._store = store
         self._cfg = cfg
-        # 使用配置中的模型创建提取器
-        from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
         from uap.infrastructure.llm.model_extractor import ModelExtractor
-        ollama_cfg = OllamaConfig(
-            base_url=cfg.llm.base_url,
-            model=cfg.llm.model,
-        )
-        ollama_client = OllamaClient(ollama_cfg)
-        self._extractor = extractor or ModelExtractor(ollama_client)
+
+        try:
+            llm_client = create_llm_chat_client(cfg.llm)
+        except ValueError as e:
+            _LOG.warning("LLM 配置不完整，回退默认 Ollama 客户端用于抽取: %s", e)
+            llm_client = create_llm_chat_client(LLMConfig())
+        self._extractor = extractor or ModelExtractor(llm_client)
     
     def refresh_extractor(self):
         """重新创建提取器以使用最新配置"""
-        from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
         from uap.infrastructure.llm.model_extractor import ModelExtractor
-        ollama_cfg = OllamaConfig(
-            base_url=self._cfg.llm.base_url,
-            model=self._cfg.llm.model,
-        )
-        ollama_client = OllamaClient(ollama_cfg)
-        self._extractor = ModelExtractor(ollama_client)
-        _LOG = logging.getLogger("uap.project_service")
-        _LOG.info(f"Extractor refreshed with model={self._cfg.llm.model}")
+
+        try:
+            llm_client = create_llm_chat_client(self._cfg.llm)
+            self._extractor = ModelExtractor(llm_client)
+            _LOG.info("Extractor refreshed with model=%s", self._cfg.llm.model)
+        except ValueError as e:
+            _LOG.warning("Extractor 未刷新（配置不完整）: %s", e)
     
     @property
     def store(self) -> ProjectStore:
@@ -582,12 +579,8 @@ class ProjectService:
             # --- 1. DST：会话内「建模阶段 + 槽位」状态机（上下文工程）---
             dst_manager = DstManager()
 
-            # --- 2. LLM 客户端：提示词工程在 ReactAgent 内；此处只配端点与模型名 ---
-            llm_cfg = OllamaConfig(
-                base_url=self._cfg.llm.base_url,
-                model=self._cfg.llm.model,
-            )
-            llm_client = OllamaClient(llm_cfg)
+            # --- 2. LLM 客户端（Ollama 或 OpenAI 兼容远程）---
+            llm_client = create_llm_chat_client(self._cfg.llm)
 
             # --- 3. 技能注册表 = 原子库 + 动态业务技能（工具系统「白名单」）---
             skills_registry = {}

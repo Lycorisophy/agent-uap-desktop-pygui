@@ -22,8 +22,8 @@ from uap.skill.models import (
     SkillExecution, ActionNode, ActionType, SessionStatus
 )
 from uap.skill.skill_store import SkillStore
+from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
 from uap.skill.generator import SkillGenerator, SkillTemplateGenerator
-from uap.llm import OllamaClient
 
 
 class SkillManager:
@@ -37,7 +37,7 @@ class SkillManager:
     def __init__(
         self,
         skill_store: SkillStore,
-        llm_client: OllamaClient
+        llm_client: Any,
     ):
         """
         Args:
@@ -317,8 +317,8 @@ class SkillManager:
                 response = self.llm.chat([
                     {"role": "user", "content": prompt}
                 ])
-                
-                result["output"] = response
+
+                result["output"] = assistant_text_from_chat_response(response)
                 result["status"] = "completed"
                 
             elif step.action_type == ActionType.TOOL_CALL:
@@ -338,8 +338,8 @@ class SkillManager:
                     response = self.llm.chat([
                         {"role": "user", "content": f"执行以下任务: {prompt}"}
                     ])
-                    
-                    result["output"] = response
+
+                    result["output"] = assistant_text_from_chat_response(response)
                     result["status"] = "completed"
             else:
                 result["status"] = "completed"

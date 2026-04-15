@@ -24,6 +24,7 @@ from uap.document.parser import (
     create_parser,
     create_parser_for_file,
 )
+from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
 from uap.prompts import PromptId, load_raw, render
 
 
@@ -237,12 +238,13 @@ class DocumentImporter:
                     {"role": "user", "content": prompt},
                 ]
             )
-            
+            response_text = assistant_text_from_chat_response(response)
+
             # 解析 LLM 响应
             import re
             import json
-            
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
                 

@@ -11,11 +11,19 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 # LLM 提供商
-LLMProvider = Literal["ollama", "minimax", "deepseek", "qwen", "openai"]
+LLMProvider = Literal[
+    "ollama",
+    "minimax",
+    "deepseek",
+    "qwen",
+    "openai",
+    "doubao",
+    "kimi",
+]
 
 # 本地配置覆盖文件名
 LOCAL_OVERRIDE_REL = Path(".uap") / "uap.local.yaml"
@@ -54,6 +62,16 @@ def llm_provider_presets() -> dict[str, dict[str, str]]:
             "model": "gpt-4o",
             "hint": "OpenAI API",
         },
+        "doubao": {
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "model": "ep-your-endpoint-id",
+            "hint": "豆包/火山方舟：模型名常填推理接入点 Endpoint ID",
+        },
+        "kimi": {
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "moonshot-v1-8k",
+            "hint": "Moonshot Kimi OpenAI 兼容接口",
+        },
     }
 
 
@@ -75,13 +93,13 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = None
     api_mode: Literal["native", "openai"] = "native"
     trust_env: Optional[bool] = None
-    
-    @field_validator("api_mode", mode="before")
-    @classmethod
-    def cloud_forces_openai_mode(cls, v: Any, info) -> str:
-        if info.data.get("provider") in ("minimax", "deepseek", "qwen", "openai"):
-            return "openai"
-        return v
+
+    @model_validator(mode="after")
+    def remote_providers_use_openai_mode(self) -> "LLMConfig":
+        """非 Ollama 厂商一律走 OpenAI 兼容 HTTP；Ollama 默认 native。"""
+        if self.provider != "ollama":
+            self.api_mode = "openai"
+        return self
 
 
 class EmbeddingConfig(BaseModel):

@@ -8,13 +8,13 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from uap.skill.models import (
     ProjectSkill, SkillSession, SkillStep, SkillParameter,
     SkillCategory, ActionNode, ActionType
 )
-from uap.llm import OllamaClient
+from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
 from uap.prompts import PromptId, load_raw, render
 
 
@@ -31,7 +31,7 @@ class SkillGenerator:
         "authorization", "cookie", "key", "credential"
     ]
     
-    def __init__(self, llm_client: OllamaClient):
+    def __init__(self, llm_client: Any):
         """
         初始化技能生成器
         
@@ -74,9 +74,9 @@ class SkillGenerator:
                 {"role": "system", "content": load_raw(PromptId.SKILL_GENERATION_SYSTEM)},
                 {"role": "user", "content": user_prompt},
             ])
-            
+
             # 5. 解析 LLM 输出
-            skill_data = self._parse_llm_response(response)
+            skill_data = self._parse_llm_response(assistant_text_from_chat_response(response))
             
             if not skill_data:
                 return None
@@ -338,7 +338,8 @@ class SkillGenerator:
         ])
         
         try:
-            return self._parse_llm_response(response) or {}
+            text = assistant_text_from_chat_response(response)
+            return self._parse_llm_response(text) or {}
         except Exception:
             return {"is_valid": False, "error": "Validation failed"}
 
@@ -350,7 +351,7 @@ class SkillTemplateGenerator:
     从通用模板生成特定领域的技能实例。
     """
     
-    def __init__(self, llm_client: OllamaClient):
+    def __init__(self, llm_client: Any):
         self.llm = llm_client
     
     def generate_from_template(

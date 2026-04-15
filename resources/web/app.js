@@ -12,6 +12,8 @@ const state = {
         llmProvider: 'ollama',
         llmModel: 'llama3.2',
         llmBaseUrl: 'http://localhost:11434',
+        llmApiKeySet: false,
+        llmPresets: {},
         defaultFrequency: 3600,
         defaultHorizon: 259200
     }
@@ -1034,6 +1036,33 @@ function bindSettingsEvents() {
     if (saveBtn) {
         saveBtn.addEventListener('click', saveSettings);
     }
+    const prov = document.getElementById('llmProvider');
+    if (prov) {
+        prov.addEventListener('change', () => {
+            applyLlmProviderPreset();
+            updateLlmPresetHint();
+        });
+    }
+}
+
+function applyLlmProviderPreset() {
+    const p = document.getElementById('llmProvider')?.value;
+    const presets = state.settings.llmPresets || {};
+    if (!p || !presets[p]) return;
+    const pr = presets[p];
+    const bu = document.getElementById('llmBaseUrl');
+    const mo = document.getElementById('llmModel');
+    if (bu && pr.base_url) bu.value = pr.base_url;
+    if (mo && pr.model) mo.value = pr.model;
+}
+
+function updateLlmPresetHint() {
+    const p = document.getElementById('llmProvider')?.value;
+    const el = document.getElementById('llmPresetHint');
+    const presets = state.settings.llmPresets || {};
+    if (!el) return;
+    const h = presets[p]?.hint;
+    el.textContent = h ? `说明：${h}` : '';
 }
 
 async function loadSettings() {
@@ -1048,6 +1077,8 @@ async function loadSettings() {
                     llmProvider: llm.provider || 'ollama',
                     llmModel: llm.model || 'llama3.2',
                     llmBaseUrl: llm.base_url || 'http://localhost:11434',
+                    llmApiKeySet: !!llm.api_key_set,
+                    llmPresets: config.llm_presets || {},
                     defaultFrequency: predDefaults.frequency_sec || 3600,
                     defaultHorizon: predDefaults.horizon_sec || 259200
                 };
@@ -1067,26 +1098,39 @@ function renderSettings() {
         ['defaultFrequency', state.settings.defaultFrequency],
         ['defaultHorizon', state.settings.defaultHorizon]
     ];
-    
+
     fields.forEach(([id, value]) => {
         const el = document.getElementById(id);
         if (el) el.value = value;
     });
+    const keyEl = document.getElementById('llmApiKey');
+    if (keyEl) {
+        keyEl.value = '';
+        keyEl.placeholder = state.settings.llmApiKeySet
+            ? '已保存密钥（留空不修改；输入新值则覆盖）'
+            : '远程厂商必填；本地 Ollama 可留空';
+    }
+    updateLlmPresetHint();
 }
 
 async function saveSettings() {
+    const llm = {
+        provider: document.getElementById('llmProvider')?.value || 'ollama',
+        model: document.getElementById('llmModel')?.value || 'llama3.2',
+        base_url: document.getElementById('llmBaseUrl')?.value || 'http://localhost:11434'
+    };
+    const apiKey = document.getElementById('llmApiKey')?.value?.trim();
+    if (apiKey) {
+        llm.api_key = apiKey;
+    }
     const settings = {
-        llm: {
-            provider: document.getElementById('llmProvider')?.value || 'ollama',
-            model: document.getElementById('llmModel')?.value || 'llama3.2',
-            base_url: document.getElementById('llmBaseUrl')?.value || 'http://localhost:11434'
-        },
+        llm,
         prediction_defaults: {
             frequency_sec: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
             horizon_sec: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
         }
     };
-    
+
     try {
         if (window.pywebview) {
             await window.pywebview.api.update_config(settings);
@@ -1095,10 +1139,13 @@ async function saveSettings() {
             llmProvider: settings.llm.provider,
             llmModel: settings.llm.model,
             llmBaseUrl: settings.llm.base_url,
+            llmApiKeySet: state.settings.llmApiKeySet || !!apiKey,
+            llmPresets: state.settings.llmPresets,
             defaultFrequency: settings.prediction_defaults.frequency_sec,
             defaultHorizon: settings.prediction_defaults.horizon_sec
         };
         showToast('设置已保存', 'success');
+        await loadSettings();
     } catch (e) {
         console.error('保存设置失败:', e);
         showToast('保存设置失败: ' + (e.message || e), 'error');
