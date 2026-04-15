@@ -1,0 +1,33 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local / secrets
+*.local.yaml
+.env
+.env.*
+
+# 非 UAP 发行产物：第三方技能资产目录（见 README「仓库布局」）
+.minimax/
+
+# PyCharm debugger / caches
+cpython-cache/

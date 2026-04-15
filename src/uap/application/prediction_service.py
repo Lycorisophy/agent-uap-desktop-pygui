@@ -27,7 +27,7 @@ from uap.project.models import (
     PredictionTask,
     Project,
 )
-from uap.project.project_store import ProjectStore
+from uap.infrastructure.persistence.project_store import ProjectStore
 
 _LOG = logging.getLogger("uap.prediction_service")
 

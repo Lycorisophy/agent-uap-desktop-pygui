@@ -71,7 +71,8 @@ class UAPApplication:
     def _create_window(self):
         """创建主窗口"""
         # 确定前端文件路径
-        frontend_dir = Path(__file__).parent / "web"
+        # 静态前端：仓库根目录 resources/web（与 Python 源码分离）
+        frontend_dir = Path(__file__).resolve().parent.parent / "resources" / "web"
 
         # 使用本地HTML作为前端
         index_path = frontend_dir / "index.html"

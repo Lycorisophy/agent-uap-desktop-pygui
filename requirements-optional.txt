@@ -1,0 +1,18 @@
+# 可选能力：按需安装（亦可用 pip install -e ".[langchain,vector,legacy-db]"）
+# --- LangChain / LangGraph（若代码路径启用）---
+langchain>=0.1.0
+langchain-core>=0.1.0
+langgraph>=0.0.0
+
+# --- 本地向量嵌入（sentence-transformers / torch）---
+torch>=2.0
+sentence-transformers>=2.0
+
+# --- 遗留/企业中间件连接（配置项存在，桌面默认可不装）---
+mysql-connector-python>=8.0
+redis>=5.0
+elasticsearch>=8.0
+pymilvus>=2.3
+neo4j>=5.0
+pymongo>=4.0
+minio>=7.0

@@ -22,8 +22,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from uap.config import UapConfig
-from uap.llm import ModelExtractor, create_default_extractor
-from uap.llm.ollama_client import OllamaClient, OllamaConfig
+from uap.infrastructure.llm import ModelExtractor, create_default_extractor
+from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import (
     ModelSource,
     PredictionConfig,
@@ -33,7 +33,7 @@ from uap.project.models import (
     Variable,
     Relation,
 )
-from uap.project.project_store import ProjectStore
+from uap.infrastructure.persistence.project_store import ProjectStore
 
 _LOG = logging.getLogger("uap.project_service")
 
@@ -63,8 +63,8 @@ class ProjectService:
         self._store = store
         self._cfg = cfg
         # 使用配置中的模型创建提取器
-        from uap.llm.ollama_client import OllamaClient, OllamaConfig
-        from uap.llm.model_extractor import ModelExtractor
+        from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
+        from uap.infrastructure.llm.model_extractor import ModelExtractor
         ollama_cfg = OllamaConfig(
             base_url=cfg.llm.base_url,
             model=cfg.llm.model,
@@ -74,8 +74,8 @@ class ProjectService:
     
     def refresh_extractor(self):
         """重新创建提取器以使用最新配置"""
-        from uap.llm.ollama_client import OllamaClient, OllamaConfig
-        from uap.llm.model_extractor import ModelExtractor
+        from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
+        from uap.infrastructure.llm.model_extractor import ModelExtractor
         ollama_cfg = OllamaConfig(
             base_url=self._cfg.llm.base_url,
             model=self._cfg.llm.model,
@@ -612,10 +612,14 @@ class ProjectService:
             skills_registry["discover_relations"] = relation_skill
 
             # 项目沙箱内读文件：缩小 **工具授权面**（仅 project_folder 下）
+            from pathlib import Path
+
             from uap.react.file_access_skill import create_file_access_skill
-            file_skill = create_file_access_skill(
-                project_folder=project.folder_path
-            )
+
+            proj_dir = Path(project.folder_path or project.workspace or "")
+            if not str(proj_dir) or not proj_dir.is_dir():
+                proj_dir = self._store.resolve_project_directory(project_id)
+            file_skill = create_file_access_skill(project_folder=str(proj_dir))
             skills_registry["file_access"] = file_skill
 
             # --- 4. ReAct 引擎：迭代上限与时间上限在构造参数体现（安全 Harness）---

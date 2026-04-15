@@ -1,4 +1,4 @@
-"""兼容入口：实现已迁至 ``uap.infrastructure.persistence``。"""
+"""文件型持久化与项目目录布局。"""
 
 from uap.infrastructure.persistence.project_store import ProjectStore, resolve_projects_root
 

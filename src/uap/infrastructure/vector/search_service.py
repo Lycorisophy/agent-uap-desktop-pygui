@@ -18,8 +18,8 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Callable
 from dataclasses import dataclass
 
-from uap.vector.vector_store import VectorStore, VectorRecord
-from uap.vector.embeddings import EmbeddingService
+from uap.infrastructure.vector.vector_store import VectorStore, VectorRecord
+from uap.infrastructure.vector.embeddings import EmbeddingService
 
 
 @dataclass
@@ -579,7 +579,7 @@ def create_search_service(
     if embedding_kwargs.get("embedding_service"):
         embedding = embedding_kwargs["embedding_service"]
     else:
-        from uap.vector.embeddings import create_embedding_service
+        from uap.infrastructure.vector.embeddings import create_embedding_service
         embedding = create_embedding_service(
             provider=embedding_provider,
             llm_client=llm_client,

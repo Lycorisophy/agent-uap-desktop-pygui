@@ -1,8 +1,5 @@
-"""
-UAP 调度器模块
-提供预测任务的定时执行功能
-"""
+"""兼容包：实现位于 ``uap.infrastructure.scheduler``。"""
 
-from uap.scheduler.task_scheduler import TaskScheduler, SchedulerConfig
+from uap.infrastructure.scheduler.task_scheduler import TaskScheduler, SchedulerConfig
 
-__all__ = ['TaskScheduler', 'SchedulerConfig']
+__all__ = ["TaskScheduler", "SchedulerConfig"]

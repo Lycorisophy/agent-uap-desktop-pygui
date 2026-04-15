@@ -13,6 +13,14 @@ UAP 是一款**纯客户端桌面应用**，旨在帮助用户对复杂系统进
 - **定时预测**：可配置预测频率（默认每小时）和预测时长（默认3天）
 - **本地优先**：所有数据存储在本地，无需网络（除连接大模型外）
 
+### 仓库布局与第三方资产
+
+- **产品代码**：[`src/uap/`](src/uap/)（分层 Python 包）、[`src/app.py`](src/app.py)（桌面入口）、[`resources/web/`](resources/web/)（内置前端静态资源）。
+- **`.minimax/`**：MiniMax 等**外部技能/脚本资产**，**不属于 UAP 运行时依赖**；默认已写入 [`.gitignore`](.gitignore)，避免与产品代码混搜。若需在本地使用，可单独克隆到仓库外并自行挂载，或按需改为 [git submodule](https://git-scm.com/book/en/v2/Git-Tools-Submodules)。
+- **配置样例**：[`config/`](config/) 下的 `uap.example.yaml` 等。
+
+更完整的分层约定见 [`docs/architecture/folder-conventions.md`](docs/architecture/folder-conventions.md)。
+
 ### 技术架构
 
 | 层级 | 技术选型 | 说明 |
@@ -195,32 +203,34 @@ fix(scheduler): 修复任务重复执行问题
 **行动模式类**
 - `AI智能体行动模式设计指南.md` - Agent执行模式
 
-### 源码结构 (`src/`)
+### 源码与资源目录（概要）
 
 ```
-src/
-├── app.py                    # 主入口，PyWebView应用
-├── uap/
-│   ├── __init__.py
-│   ├── api.py                # JavaScript API封装
-│   ├── config.py             # 配置管理
-│   ├── llm/
-│   │   ├── __init__.py
-│   │   ├── ollama_client.py  # Ollama API客户端
-│   │   └── model_extractor.py # 系统模型提取器
-│   ├── project/
-│   │   ├── models.py         # 核心数据模型
-│   │   └── project_store.py  # 存储模块
-│   ├── scheduler/
-│   │   └── task_scheduler.py # 任务调度器
-│   └── service/
-│       ├── project_service.py    # 项目服务（含LLM集成）
-│       └── prediction_service.py # 预测服务
-└── web/                      # 前端资源（自动生成）
-    ├── index.html
-    ├── app.js
-    └── style.css
+agent-uap-desktop-pygui/
+├── pyproject.toml            # 包元数据与依赖（推荐 pip install -e .）
+├── requirements-base.txt   # 核心依赖列表
+├── requirements-optional.txt # 可选依赖（向量/LangChain/中间件等）
+├── resources/web/          # 内置前端（HTML/CSS/JS）
+├── config/                 # 配置样例
+├── docs/                   # 文档与设计指南
+└── src/
+    ├── app.py              # PyWebView 桌面入口
+    └── uap/
+        ├── api.py          # 兼容：转发至 interfaces
+        ├── interfaces/   # 表现层：UAPApi 与按领域拆分的 mixin
+        ├── application/    # 应用层：项目/预测用例编排
+        ├── infrastructure/# 基础设施：持久化、LLM、向量、调度
+        ├── domain/         # 领域扩展占位（约定见 docs/architecture）
+        ├── project/        # 项目领域模型（models；store 为兼容 shim）
+        ├── llm/            # 兼容 shim → infrastructure.llm
+        ├── vector/         # 兼容 shim → infrastructure.vector
+        ├── scheduler/      # 兼容 shim → infrastructure.scheduler
+        ├── service/        # 兼容 shim → application
+        ├── react/ …        # ReAct / DST 等（逐步向 domain 收敛）
+        └── …
 ```
+
+更完整的分层与依赖规则见 [`docs/architecture/folder-conventions.md`](docs/architecture/folder-conventions.md)。
 
 ---
 
@@ -234,8 +244,16 @@ src/
 
 ### 安装依赖
 
+推荐（可编辑安装，与 IDE 分析一致）：
+
 ```bash
-pip install -r requirements.txt
+pip install -e .
+```
+
+或仅安装核心依赖文件：
+
+```bash
+pip install -r requirements-base.txt
 ```
 
 ### 配置Ollama
@@ -294,4 +312,4 @@ python app.py
 
 ---
 
-*最后更新：2026-04-14*
+*最后更新：2026-04-15*

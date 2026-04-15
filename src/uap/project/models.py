@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class ProjectStatus(str, Enum):
@@ -152,7 +152,7 @@ class Project(BaseModel):
     # 项目状态
     status: ProjectStatus = ProjectStatus.IDLE
     
-    # 工作区
+    # 工作区（项目根目录绝对路径；与 meta 同目录）
     workspace: str = Field(default="", description="项目工作区路径")
     
     # 元数据
@@ -169,6 +169,17 @@ class Project(BaseModel):
     # 所有者（未来支持多用户）
     owner_id: Optional[str] = None
     
+    @computed_field
+    @property
+    def folder_path(self) -> str:
+        """
+        项目文件夹绝对路径。
+
+        与 ``workspace`` 同值；供 ``UAPApi.get_project_folder``、ReAct ``file_access`` 等读取，
+        避免各处字段名不一致。
+        """
+        return self.workspace or ""
+
     def touch(self) -> None:
         """更新修改时间"""
         self.updated_at = datetime.now(timezone.utc).isoformat()

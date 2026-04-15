@@ -27,7 +27,7 @@ from dataclasses import dataclass
 _LOG = logging.getLogger("uap.model_extractor")
 _LOG.setLevel(logging.DEBUG)
 
-from uap.llm.ollama_client import OllamaClient, OllamaConfig
+from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import SystemModel, Variable, Relation, Constraint, ModelSource
 
 
