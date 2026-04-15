@@ -22,6 +22,12 @@ from uap.react.web_search_skill import (
     create_web_search_skill,
     create_knowledge_base_skill,
 )
+from uap.react.file_access_skill import (
+    FileAccessSkill,
+    ExternalFileAccessSkill,
+    create_file_access_skill,
+    create_external_file_access_skill,
+)
 
 
 def create_react_agent(
@@ -72,6 +78,11 @@ __all__ = [
     "KnowledgeBaseSkill",
     "create_web_search_skill",
     "create_knowledge_base_skill",
+    # File Access Skills
+    "FileAccessSkill",
+    "ExternalFileAccessSkill",
+    "create_file_access_skill",
+    "create_external_file_access_skill",
     # Factory
     "create_react_agent",
 ]

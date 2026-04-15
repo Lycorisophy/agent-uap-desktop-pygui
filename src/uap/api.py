@@ -609,5 +609,34 @@ class UAPApi:
             _LOG.error(f"打开文件夹失败: {e}")
             return {"success": False, "error": str(e)}
 
+    def list_directory(self, folder_path: str) -> dict:
+        """
+        List contents of a directory
+        Returns files and folders with metadata
+        """
+        try:
+            if not os.path.exists(folder_path):
+                return {"success": False, "error": "文件夹不存在", "files": []}
+            
+            files = []
+            for item in os.listdir(folder_path):
+                item_path = os.path.join(folder_path, item)
+                is_dir = os.path.isdir(item_path)
+                size = 0 if is_dir else os.path.getsize(item_path)
+                files.append({
+                    "name": item,
+                    "path": item_path,
+                    "is_directory": is_dir,
+                    "size": size
+                })
+            
+            # 按文件夹优先排序
+            files.sort(key=lambda x: (not x["is_directory"], x["name"].lower()))
+            
+            return {"success": True, "files": files}
+        except Exception as e:
+            _LOG.error(f"列出目录失败: {e}")
+            return {"success": False, "error": str(e), "files": []}
+
 
 from datetime import datetime

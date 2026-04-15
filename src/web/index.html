@@ -53,7 +53,7 @@
             <!-- 系统建模视图 -->
             <section id="modelingView" class="view">
                 <div class="view-header">
-                    <h2>智能对话模式 <span class="mode-badge">RADH</span></h2>
+                    <h2>智能对话模式 <span class="mode-badge radh"><span class="badge-dot"></span>RADH</span></h2>
                     <div class="project-selector">
                         <select id="modelingProjectSelect"><option value="">选择项目...</option></select>
                     </div>
@@ -70,9 +70,122 @@
                             <button class="btn btn-primary" id="sendMessageBtn">发送</button>
                         </div>
                     </div>
-                    <div class="model-preview">
-                        <h3>系统模型预览</h3>
-                        <div class="model-content" id="modelPreview"><p class="placeholder">尚未提取模型</p></div>
+                    <div class="agent-sidebar">
+                        <div class="sidebar-tabs">
+                            <button class="tab-btn active" data-tab="skills">
+                                <span class="tab-icon">🛠️</span>
+                                <span>技能</span>
+                            </button>
+                            <button class="tab-btn" data-tab="process">
+                                <span class="tab-icon">⚡</span>
+                                <span>进程</span>
+                            </button>
+                            <button class="tab-btn" data-tab="dst">
+                                <span class="tab-icon">📊</span>
+                                <span>DST</span>
+                            </button>
+                            <button class="tab-btn" data-tab="files">
+                                <span class="tab-icon">📁</span>
+                                <span>文件</span>
+                            </button>
+                            <button class="tab-btn" data-tab="models">
+                                <span class="tab-icon">🔮</span>
+                                <span>模型</span>
+                            </button>
+                        </div>
+                        <div class="sidebar-content">
+                            <!-- 技能列表 -->
+                            <div class="tab-panel active" id="skillsPanel">
+                                <div class="panel-header">
+                                    <h4>可用技能</h4>
+                                    <button class="btn-icon refresh-btn" onclick="refreshSkillsList()">⟳</button>
+                                </div>
+                                <div class="skills-list" id="skillsList">
+                                    <div class="empty-state">点击刷新加载技能库</div>
+                                </div>
+                            </div>
+                            <!-- 智能体进程 -->
+                            <div class="tab-panel" id="processPanel">
+                                <div class="panel-header">
+                                    <h4>当前进程</h4>
+                                    <span class="status-badge" id="processStatus">空闲</span>
+                                </div>
+                                <div class="process-steps" id="processSteps">
+                                    <div class="empty-state">暂无运行中的任务</div>
+                                </div>
+                            </div>
+                            <!-- DST状态追踪 -->
+                            <div class="tab-panel" id="dstPanel">
+                                <div class="panel-header">
+                                    <h4>DST状态追踪</h4>
+                                    <span class="progress-indicator" id="dstProgress">0%</span>
+                                </div>
+                                <div class="dst-stages" id="dstStages">
+                                    <div class="dst-stage" data-stage="INITIAL">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">初始化</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="INTENT">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">意图识别</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="VARIABLES">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">变量收集</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="RELATIONS">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">关系发现</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="CONSTRAINTS">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">约束定义</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="VALIDATION">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">模型验证</span>
+                                    </div>
+                                    <div class="dst-stage" data-stage="COMPLETED">
+                                        <span class="stage-icon">○</span>
+                                        <span class="stage-name">完成</span>
+                                    </div>
+                                </div>
+                                <div class="dst-details" id="dstDetails">
+                                    <p class="placeholder">DST详情将在这里显示</p>
+                                </div>
+                            </div>
+                            <!-- 项目文件夹 -->
+                            <div class="tab-panel" id="filesPanel">
+                                <div class="panel-header">
+                                    <h4>项目文件夹</h4>
+                                    <button class="btn-icon" onclick="openProjectInExplorer()">📂</button>
+                                </div>
+                                <div class="file-browser" id="fileBrowser">
+                                    <div class="empty-state">请先选择项目</div>
+                                </div>
+                            </div>
+                            <!-- 模型浏览 -->
+                            <div class="tab-panel" id="modelsPanel">
+                                <div class="panel-header">
+                                    <h4>系统模型</h4>
+                                    <button class="btn-icon" onclick="refreshModelPreview()">⟳</button>
+                                </div>
+                                <div class="model-content" id="modelPreview">
+                                    <div class="model-variables" id="modelVariables">
+                                        <h5>变量定义</h5>
+                                        <div class="empty-state">尚未提取变量</div>
+                                    </div>
+                                    <div class="model-relations" id="modelRelations">
+                                        <h5>关系定义</h5>
+                                        <div class="empty-state">尚未提取关系</div>
+                                    </div>
+                                    <div class="model-constraints" id="modelConstraints">
+                                        <h5>约束条件</h5>
+                                        <div class="empty-state">尚未定义约束</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>

@@ -1264,3 +1264,472 @@ select {
 .stat-row:last-child {
     border-bottom: none;
 }
+
+/* ==================== 智能体侧边栏 ==================== */
+.modeling-container {
+    display: flex;
+    gap: 16px;
+    height: calc(100vh - 140px);
+}
+
+.modeling-chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.agent-sidebar {
+    width: 320px;
+    background: var(--card-bg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ==================== 侧边栏标签 ==================== */
+.sidebar-tabs {
+    display: flex;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.sidebar-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.tab-btn {
+    flex: 1;
+    min-width: 50px;
+    padding: 10px 4px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+}
+
+.tab-btn:hover {
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    background: var(--card-bg);
+}
+
+.tab-icon {
+    font-size: 16px;
+}
+
+/* ==================== 侧边栏内容 ==================== */
+.sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.tab-panel {
+    display: none;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.panel-header h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+/* ==================== 技能列表 ==================== */
+.skills-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skill-item {
+    padding: 10px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-item:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.skill-item .skill-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.skill-item .skill-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.skill-item .skill-category {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--primary-light);
+    color: var(--primary-color);
+    border-radius: 4px;
+    font-size: 10px;
+    margin-top: 6px;
+}
+
+.skill-item.active {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+/* ==================== 进程面板 ==================== */
+.status-badge {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.status-badge.idle {
+    background: var(--bg-color);
+    color: var(--text-muted);
+}
+
+.status-badge.running {
+    background: #dbeafe;
+    color: #1d4ed8;
+    animation: pulse 1.5s infinite;
+}
+
+.status-badge.completed {
+    background: #d1fae5;
+    color: #059669;
+}
+
+.status-badge.error {
+    background: #fee2e2;
+    color: var(--danger-color);
+}
+
+.process-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.process-step {
+    padding: 10px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--border-color);
+}
+
+.process-step.running {
+    border-left-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.process-step.completed {
+    border-left-color: var(--success-color);
+}
+
+.process-step .step-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.process-step .step-name {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.process-step .step-status {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.process-step .step-detail {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ==================== DST面板 ==================== */
+.progress-indicator {
+    padding: 3px 8px;
+    background: var(--primary-light);
+    color: var(--primary-color);
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.dst-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.dst-stage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+}
+
+.dst-stage.active {
+    background: var(--primary-light);
+    color: var(--primary-color);
+}
+
+.dst-stage.completed {
+    color: var(--success-color);
+}
+
+.stage-icon {
+    font-size: 14px;
+}
+
+.dst-stage.active .stage-icon::before {
+    content: "◉";
+}
+
+.dst-stage.completed .stage-icon::before {
+    content: "✓";
+}
+
+.dst-stage:not(.active):not(.completed) .stage-icon::before {
+    content: "○";
+}
+
+.dst-details {
+    padding: 12px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    font-size: 11px;
+}
+
+.dst-details .detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dst-details .detail-row:last-child {
+    border-bottom: none;
+}
+
+.dst-details .detail-label {
+    color: var(--text-muted);
+}
+
+.dst-details .detail-value {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+/* ==================== 文件浏览面板 ==================== */
+.file-browser {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.file-item:hover {
+    background: var(--primary-light);
+}
+
+.file-item .file-icon {
+    font-size: 14px;
+}
+
+.file-item .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-item .file-size {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.folder-item {
+    font-weight: 500;
+}
+
+.folder-item .folder-arrow {
+    transition: transform 0.2s;
+}
+
+.folder-item.expanded .folder-arrow {
+    transform: rotate(90deg);
+}
+
+.file-tree {
+    margin-left: 16px;
+}
+
+/* ==================== 模型浏览面板 ==================== */
+.model-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.model-content h5 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.model-var-item,
+.model-rel-item,
+.model-constraint-item {
+    padding: 8px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+
+.model-var-item .var-name {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.model-var-item .var-type {
+    color: var(--text-muted);
+    margin-left: 8px;
+}
+
+.model-rel-item .rel-name {
+    font-weight: 600;
+    color: var(--success-color);
+}
+
+.model-rel-item .rel-desc {
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.model-constraint-item {
+    border-left: 3px solid var(--warning-color);
+}
+
+/* ==================== 空状态 ==================== */
+.empty-state {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.placeholder {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+
+/* ==================== 通用辅助类 ==================== */
+.btn-icon {
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 14px;
+    border-radius: var(--radius-sm);
+    transition: background 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--bg-color);
+}
+
+.refresh-btn {
+    animation: none;
+}
+
+.refresh-btn.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ==================== 响应式调整 ==================== */
+@media (max-width: 1200px) {
+    .agent-sidebar {
+        width: 280px;
+    }
+}
+
+@media (max-width: 992px) {
+    .modeling-container {
+        flex-direction: column;
+    }
+    
+    .agent-sidebar {
+        width: 100%;
+        height: 300px;
+    }
+}

@@ -604,6 +604,13 @@ class ProjectService:
             relation_skill = self._create_relation_discovery_skill()
             skills_registry["discover_relations"] = relation_skill
 
+            # 添加文件访问技能（智能体原生能力 - 已授权）
+            from uap.react.file_access_skill import create_file_access_skill
+            file_skill = create_file_access_skill(
+                project_folder=project.folder_path
+            )
+            skills_registry["file_access"] = file_skill
+
             # 4. 创建ReAct Agent
             react_agent = ReactAgent(
                 llm_client=llm_client,

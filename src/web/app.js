@@ -374,6 +374,364 @@ function bindModelingEvents() {
             }
         });
     }
+    
+    // 智能体侧边栏标签切换
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            switchAgentTab(tab);
+        });
+    });
+}
+
+// ==================== 智能体侧边栏 ====================
+
+function switchAgentTab(tabName) {
+    // 更新标签按钮状态
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    
+    // 更新面板显示
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `${tabName}Panel`);
+    });
+    
+    // 加载对应面板数据
+    switch (tabName) {
+        case 'skills':
+            loadSkillsList();
+            break;
+        case 'files':
+            loadProjectFiles();
+            break;
+        case 'models':
+            refreshModelPreview();
+            break;
+    }
+}
+
+// 刷新技能列表
+async function loadSkillsList() {
+    const container = document.getElementById('skillsList');
+    if (!container) return;
+    
+    try {
+        if (window.pywebview) {
+            const skills = await window.pywebview.api.get_atomic_skills();
+            if (skills && skills.length > 0) {
+                container.innerHTML = skills.map(skill => `
+                    <div class="skill-item" data-id="${skill.id || skill.name}">
+                        <div class="skill-name">${escapeHtml(skill.name || '未知技能')}</div>
+                        <div class="skill-desc">${escapeHtml(skill.description || skill.desc || '')}</div>
+                        ${skill.category ? `<span class="skill-category">${escapeHtml(skill.category)}</span>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div class="empty-state">暂无可用技能</div>';
+            }
+        } else {
+            // 演示数据
+            container.innerHTML = `
+                <div class="skill-item" data-id="web_search">
+                    <div class="skill-name">网络搜索</div>
+                    <div class="skill-desc">搜索互联网获取相关信息</div>
+                    <span class="skill-category">情报</span>
+                </div>
+                <div class="skill-item" data-id="file_reader">
+                    <div class="skill-name">文件读取</div>
+                    <div class="skill-desc">读取项目文件夹中的文件</div>
+                    <span class="skill-category">工具</span>
+                </div>
+                <div class="skill-item" data-id="variable_extractor">
+                    <div class="skill-name">变量提取</div>
+                    <div class="skill-desc">从对话中提取系统变量</div>
+                    <span class="skill-category">建模</span>
+                </div>
+            `;
+        }
+    } catch (e) {
+        console.error('加载技能列表失败:', e);
+        container.innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+}
+
+// 刷新技能列表（供外部调用）
+window.refreshSkillsList = loadSkillsList;
+
+// 加载项目文件
+async function loadProjectFiles() {
+    const container = document.getElementById('fileBrowser');
+    if (!container) return;
+    
+    if (!state.currentProject) {
+        container.innerHTML = '<div class="empty-state">请先选择项目</div>';
+        return;
+    }
+    
+    try {
+        if (window.pywebview) {
+            const result = await window.pywebview.api.get_project_folder(state.currentProject.id);
+            if (result && result.success && result.folder_path) {
+                // 获取文件夹内容
+                const files = await listDirectory(result.folder_path);
+                container.innerHTML = renderFileTree(files, result.folder_path);
+            } else {
+                container.innerHTML = '<div class="empty-state">无法获取项目文件夹</div>';
+            }
+        } else {
+            // 演示数据
+            container.innerHTML = `
+                <div class="file-item folder-item" data-path="intro">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">intro</span>
+                </div>
+                <div class="file-item folder-item" data-path="skills">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">skills</span>
+                </div>
+                <div class="file-item folder-item" data-path="logs">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">logs</span>
+                </div>
+                <div class="file-item folder-item" data-path="models">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">models</span>
+                </div>
+                <div class="file-item folder-item" data-path="tasks">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">tasks</span>
+                </div>
+                <div class="file-item folder-item" data-path="data">
+                    <span class="folder-arrow">▶</span>
+                    <span class="file-icon">📁</span>
+                    <span class="file-name">data</span>
+                </div>
+            `;
+        }
+    } catch (e) {
+        console.error('加载项目文件失败:', e);
+        container.innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+}
+
+// 列出目录内容
+async function listDirectory(folderPath) {
+    try {
+        if (window.pywebview) {
+            const result = await window.pywebview.api.list_directory(folderPath);
+            return result.files || [];
+        }
+    } catch (e) {
+        console.error('列出目录失败:', e);
+    }
+    return [];
+}
+
+// 渲染文件树
+function renderFileTree(files, basePath) {
+    if (!files || files.length === 0) {
+        return '<div class="empty-state">文件夹为空</div>';
+    }
+    
+    return files.map(file => `
+        <div class="file-item ${file.is_directory ? 'folder-item' : ''}" data-path="${file.path}">
+            ${file.is_directory ? '<span class="folder-arrow">▶</span>' : ''}
+            <span class="file-icon">${file.is_directory ? '📁' : getFileIcon(file.name)}</span>
+            <span class="file-name">${escapeHtml(file.name)}</span>
+            ${file.size ? `<span class="file-size">${formatFileSize(file.size)}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+// 获取文件图标
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'md': '📝', 'txt': '📄', 'json': '📋', 'yaml': '📋', 'yml': '📋',
+        'py': '🐍', 'js': '📜', 'ts': '📜', 'csv': '📊', 'xlsx': '📊',
+        'png': '🖼️', 'jpg': '🖼️', 'jpeg': '🖼️', 'gif': '🖼️',
+        'pdf': '📕'
+    };
+    return icons[ext] || '📄';
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// 在文件管理器中打开项目文件夹
+async function openProjectInExplorer() {
+    if (!state.currentProject) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+    
+    try {
+        if (window.pywebview) {
+            const result = await window.pywebview.api.get_project_folder(state.currentProject.id);
+            if (result && result.success) {
+                await window.pywebview.api.open_folder(result.folder_path);
+            }
+        }
+    } catch (e) {
+        console.error('打开文件夹失败:', e);
+        showToast('打开文件夹失败', 'error');
+    }
+}
+
+window.openProjectInExplorer = openProjectInExplorer;
+
+// 更新进程状态
+function updateProcessStatus(status, steps = []) {
+    const statusBadge = document.getElementById('processStatus');
+    const stepsContainer = document.getElementById('processSteps');
+    
+    if (statusBadge) {
+        statusBadge.className = `status-badge ${status}`;
+        statusBadge.textContent = {
+            'idle': '空闲',
+            'running': '运行中',
+            'completed': '完成',
+            'error': '错误'
+        }[status] || status;
+    }
+    
+    if (stepsContainer) {
+        if (steps.length === 0) {
+            stepsContainer.innerHTML = '<div class="empty-state">暂无运行中的任务</div>';
+        } else {
+            stepsContainer.innerHTML = steps.map(step => `
+                <div class="process-step ${step.status || ''}">
+                    <div class="step-header">
+                        <span class="step-name">${escapeHtml(step.name || step.action || '步骤')}</span>
+                        <span class="step-status">${step.status === 'completed' ? '✓' : step.status === 'running' ? '●' : '○'}</span>
+                    </div>
+                    ${step.detail ? `<div class="step-detail">${escapeHtml(step.detail)}</div>` : ''}
+                </div>
+            `).join('');
+        }
+    }
+}
+
+window.updateProcessStatus = updateProcessStatus;
+
+// 更新DST状态
+function updateDSTStatus(stage, progress, details = {}) {
+    const progressIndicator = document.getElementById('dstProgress');
+    const stagesContainer = document.getElementById('dstStages');
+    const detailsContainer = document.getElementById('dstDetails');
+    
+    // 更新进度
+    if (progressIndicator) {
+        progressIndicator.textContent = `${Math.round(progress * 100)}%`;
+    }
+    
+    // 更新阶段
+    const stageOrder = ['INITIAL', 'INTENT', 'VARIABLES', 'RELATIONS', 'CONSTRAINTS', 'VALIDATION', 'COMPLETED'];
+    const currentIndex = stageOrder.indexOf(stage);
+    
+    if (stagesContainer) {
+        document.querySelectorAll('.dst-stage').forEach(el => {
+            const elStage = el.dataset.stage;
+            const elIndex = stageOrder.indexOf(elStage);
+            
+            el.classList.remove('active', 'completed');
+            if (elIndex < currentIndex) {
+                el.classList.add('completed');
+            } else if (elStage === stage) {
+                el.classList.add('active');
+            }
+        });
+    }
+    
+    // 更新详情
+    if (detailsContainer && Object.keys(details).length > 0) {
+        detailsContainer.innerHTML = Object.entries(details).map(([key, value]) => `
+            <div class="detail-row">
+                <span class="detail-label">${escapeHtml(key)}</span>
+                <span class="detail-value">${escapeHtml(String(value))}</span>
+            </div>
+        `).join('');
+    }
+}
+
+window.updateDSTStatus = updateDSTStatus;
+
+// 刷新模型预览
+async function refreshModelPreview() {
+    if (!state.currentProject || !state.currentProject.model) {
+        // 尝试从API获取模型
+        if (state.currentProject && window.pywebview) {
+            try {
+                const project = await window.pywebview.api.get_project(state.currentProject.id);
+                if (project && project.model) {
+                    state.currentProject.model = project.model;
+                }
+            } catch (e) {
+                console.error('获取模型失败:', e);
+            }
+        }
+    }
+    
+    renderModelPreviewToPanels(state.currentProject?.model);
+}
+
+window.refreshModelPreview = refreshModelPreview;
+
+// 渲染模型到面板
+function renderModelPreviewToPanels(model) {
+    const variablesContainer = document.getElementById('modelVariables');
+    const relationsContainer = document.getElementById('modelRelations');
+    const constraintsContainer = document.getElementById('modelConstraints');
+    
+    if (variablesContainer) {
+        if (model && model.variables && model.variables.length > 0) {
+            variablesContainer.innerHTML = '<h5>变量定义</h5>' + model.variables.map(v => `
+                <div class="model-var-item">
+                    <span class="var-name">${escapeHtml(v.name)}</span>
+                    <span class="var-type">${escapeHtml(v.type || v.data_type || '未知')}</span>
+                    ${v.description ? `<div class="var-desc">${escapeHtml(v.description)}</div>` : ''}
+                </div>
+            `).join('');
+        } else {
+            variablesContainer.innerHTML = '<h5>变量定义</h5><div class="empty-state">尚未提取变量</div>';
+        }
+    }
+    
+    if (relationsContainer) {
+        if (model && model.relations && model.relations.length > 0) {
+            relationsContainer.innerHTML = '<h5>关系定义</h5>' + model.relations.map(r => `
+                <div class="model-rel-item">
+                    <div class="rel-name">${escapeHtml(r.name || r.source + ' → ' + r.target)}</div>
+                    <div class="rel-desc">${escapeHtml(r.description || r.type || '')}</div>
+                </div>
+            `).join('');
+        } else {
+            relationsContainer.innerHTML = '<h5>关系定义</h5><div class="empty-state">尚未提取关系</div>';
+        }
+    }
+    
+    if (constraintsContainer) {
+        if (model && model.constraints && model.constraints.length > 0) {
+            constraintsContainer.innerHTML = '<h5>约束条件</h5>' + model.constraints.map(c => `
+                <div class="model-constraint-item">
+                    <div class="constraint-name">${escapeHtml(c.name || c.expression)}</div>
+                    ${c.description ? `<div class="constraint-desc">${escapeHtml(c.description)}</div>` : ''}
+                </div>
+            `).join('');
+        } else {
+            constraintsContainer.innerHTML = '<h5>约束条件</h5><div class="empty-state">尚未定义约束</div>';
+        }
+    }
 }
 
 function updateProjectSelects() {
