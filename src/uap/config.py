@@ -147,37 +147,62 @@ class SchedulerConfig(BaseModel):
 
 
 class MemoryConfig(BaseModel):
-    """记忆与知识系统配置"""
-    enabled: bool = True
-    vector_enabled: bool = True
-    event_index_enabled: bool = True
-    graph_enabled: bool = True
+    """
+    **记忆与知识系统**总开关（与 ``docs/设计指南`` 中分层记忆架构对齐的占位配置）。
+
+    - ``vector_enabled``：语义检索 / 长期事实召回（见 ``uap.vector``）。
+    - ``event_index_enabled``：时序事件、预测任务等索引（可与 JSONL/SQLite 配合）。
+    - ``graph_enabled``：实体关系图存储（当前多为扩展预留，非桌面默认路径）。
+
+    实现注意：各子模块应在启动时读取本块，避免在业务代码里硬编码开关。
+    """
+    enabled: bool = True  # 总闸：关闭则跳过可选记忆管线，仅保留文件型持久化
+    vector_enabled: bool = True  # 向量记忆 / RAG
+    event_index_enabled: bool = True  # 事件类记忆索引
+    graph_enabled: bool = True  # 图记忆（知识图谱）
 
 
 class AgentConfig(BaseModel):
-    """智能体配置"""
+    """
+    **八大行动模式**相关运行时参数（当前仓库以 ReAct 为主）。
+
+    - ``react_max_steps_default``：与 ``ReactAgent.max_iterations`` 语义类似，
+      供上层在创建 Agent 时作为默认安全预算（可在 service 层覆盖）。
+    - ``builtin_scheduler_enabled``：定时预测与后台任务，属 **环境 Harness**，
+      与对话式行动模式正交。
+    """
     react_max_steps_default: int = Field(default=12, ge=1, le=200)
     builtin_scheduler_enabled: bool = True
 
 
 class ContextCompressionConfig(BaseModel):
-    """上下文压缩配置"""
+    """
+    **上下文工程**：在提示词发送前做预算与压缩（占位，供未来接入摘要链）。
+
+    - ``context_token_budget``：单请求目标 token 上限（与模型窗口、成本联动）。
+    - ``pre_send_threshold``：达到预算的多少比例时触发压缩策略（如摘要历史）。
+    """
     enabled: bool = True
     context_token_budget: int = Field(default=32000, ge=4096, le=500000)
     pre_send_threshold: float = Field(default=0.85, ge=0.3, le=0.99)
 
 
 class UapConfig(BaseModel):
-    """UAP 完整配置"""
-    version: int = 1
-    app: AppConfig = Field(default_factory=AppConfig)
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
-    storage: StorageConfig = Field(default_factory=StorageConfig)
-    prediction: PredictionConfig = Field(default_factory=PredictionConfig)
-    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
-    memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    agent: AgentConfig = Field(default_factory=AgentConfig)
+    """
+    **UAP 完整配置**：桌面应用 + LLM + 存储 + 预测调度 + 记忆/上下文策略的统一入口。
+
+    扩展「行动模式 / 工具系统」时，优先增加独立子模型（如 ``AgentConfig``），避免
+    在 ``LLMConfig`` 中混入非 LLM 字段，便于 **Harness**（`api`/`app`）注入依赖。
+    """
+    version: int = 1  # 配置文件模式版本，便于迁移
+    app: AppConfig = Field(default_factory=AppConfig)  # 窗口与调试等 **桌面壳** 参数
+    llm: LLMConfig = Field(default_factory=LLMConfig)  # **提示词载体**所调用的推理端
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)  # 向量记忆嵌入
+    storage: StorageConfig = Field(default_factory=StorageConfig)  # 项目根路径等
+    prediction: PredictionConfig = Field(default_factory=PredictionConfig)  # 预测默认策略
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)  # 定时 **任务 Harness**
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)  # 记忆与知识子系统
+    agent: AgentConfig = Field(default_factory=AgentConfig)  # 行动模式默认参数
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
 
 

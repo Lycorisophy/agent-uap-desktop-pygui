@@ -1,0 +1,11 @@
+{
+  "include": ["src"],
+  "exclude": ["**/.minimax/**", "**/node_modules/**"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "executionEnvironments": [
+    {
+      "root": "src"
+    }
+  ]
+}

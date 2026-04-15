@@ -1,7 +1,13 @@
 """
-UAP 技能系统 - 技能执行器
+技能执行器子系统 —— **Workflow 式行动**的高层封装（与 ReAct 并行存在）
+======================================================================
 
-专门用于建模和预测技能的执行器，集成到现有的服务和引擎。
+- ``ModelingSkillExecutor``：面向「已注册 ProjectSkill」的建模链，内部仍可能调 LLM。
+- ``PredictionSkillExecutor``：把预测引擎包成可编排步骤（见文件后部）。
+
+与 **八大行动模式**：此处更接近「固定技能链 + LLM 子步」，而非 ReAct 的自由工具循环。
+与 **Harness**：由 ``ProjectService`` 或其它服务在需要「重技能」路径时选择性调用。
+======================================================================
 """
 
 from typing import Any, Optional
@@ -17,25 +23,23 @@ from uap.skill.generator import SkillGenerator
 
 class ModelingSkillExecutor:
     """
-    建模技能执行器
-    
-    专门执行建模类技能，集成 ModelExtractor。
+    **建模类 ProjectSkill** 的执行入口：选技能 → 组装 ``context`` → ``execute_skill``。
+
+    当不存在可用技能时，回退到 ``ModelExtractor``（**提示词工程的另一条管线**）。
     """
-    
+
     def __init__(
         self,
         skill_manager: SkillManager,
         model_extractor
     ):
         """
-        初始化建模技能执行器
-        
         Args:
-            skill_manager: 技能管理器
-            model_extractor: 模型提取器 (ModelExtractor)
+            skill_manager: 带存储的技能管理器
+            model_extractor: JSON 契约式抽取器，作为通用回退
         """
-        self.skills = skill_manager
-        self.extractor = model_extractor
+        self.skills = skill_manager  # 工具编排与持久化
+        self.extractor = model_extractor  # LLM 结构化抽取 **备用路径**
     
     def execute_modeling_skill(
         self,

@@ -1,7 +1,16 @@
 """
-UAP 技能系统 - 技能管理器
+SkillManager —— **技能与工具系统**的「持久化技能编排器」（区别于 ReAct 的 AtomicSkill）
+================================================================================
 
-负责技能的加载、执行、更新和生命周期管理。
+定位：
+- ``AtomicSkill``：轻量、无项目级存储、适合 **ReAct 工具注册表**。
+- ``ProjectSkill`` + 本管理器：带步骤模板（``SkillStep.prompt_template``）、可落盘、
+  适合 **Workflow / 半自动技能链** 与 **提示词模板化**。
+
+与 **记忆**：技能 JSON 存于项目目录（经 ``SkillStore``）；执行轨迹写 ``SkillExecution``。
+
+与 **Harness**：一般由服务层构造，不经 PyWebView 直接暴露。
+================================================================================
 """
 
 import uuid
@@ -19,36 +28,32 @@ from uap.llm import OllamaClient
 
 class SkillManager:
     """
-    技能管理器
-    
-    负责技能的加载、执行、更新和生命周期管理。
-    提供技能发现、技能执行、技能合并等功能。
+    **项目技能**生命周期：加载/缓存、相关性检索、按步骤执行（每步可调用 LLM）。
+
+    执行路径中会拼接 ``prompt_template`` —— 属于 **提示词工程**；调用方传入的
+    ``context`` dict 则是 **上下文工程** 的注入槽（前置条件校验见 ``_check_preconditions``）。
     """
-    
+
     def __init__(
         self,
         skill_store: SkillStore,
         llm_client: OllamaClient
     ):
         """
-        初始化技能管理器
-        
         Args:
-            skill_store: 技能存储
-            llm_client: LLM 客户端
+            skill_store: 项目目录下技能 JSON 的 DAO
+            llm_client: 用于步骤级补全 / 生成的统一客户端
         """
-        self.store = skill_store
-        self.llm = llm_client
-        
-        # 初始化生成器
+        self.store = skill_store  # 持久化：**技能记忆**载体
+        self.llm = llm_client  # **推理 Harness**：执行期逐步调用
+
+        # 生成器：偏 **自动技能工匠**（元技能），与运行时执行解耦
         self.generator = SkillGenerator(llm_client)
         self.template_generator = SkillTemplateGenerator(llm_client)
-        
-        # 技能缓存
-        self.skill_cache: dict[str, list[ProjectSkill]] = {}
-        
-        # 执行回调
-        self.step_executor: Optional[Callable] = None
+
+        self.skill_cache: dict[str, list[ProjectSkill]] = {}  # project_id → 技能列表缓存
+
+        self.step_executor: Optional[Callable] = None  # 可选外部钩子：测试/遥测插入点
     
     # ==================== 技能加载 ====================
     

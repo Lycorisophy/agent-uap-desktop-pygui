@@ -1,7 +1,14 @@
 """
-UAP 技能系统 - 核心数据模型
+uap.skill.models —— **技能 / 工具 / 会话轨迹** 的共享类型（被 ReAct、DST、SkillManager 复用）
+================================================================================
 
-定义技能会话追踪、操作节点、项目技能等核心数据结构。
+- ``ActionNode``：单步 **工具调用或思考** 的可序列化记录；``metadata`` 常承载
+  **DST 写回**（variables/relations 等），是连接「工具系统」与「槽位记忆」的关键字段。
+- ``SkillSession``：一次多步执行的 **工作记忆**；与 ``DstState`` 分工见 ``dst_manager`` 模块说明。
+- ``ProjectSkill`` / ``SkillStep``：偏 **Workflow 技能链** 与 **提示词模板**（在文件后部）。
+
+修改字段时同步更新：API 序列化、前端面板、以及提示词里若硬编码了字段名。
+================================================================================
 """
 
 from datetime import datetime
@@ -38,26 +45,28 @@ class SkillCategory(str, Enum):
 
 class ActionNode(BaseModel):
     """
-    操作轨迹节点 - 技能生成的原子单位
-    
-    记录 Agent 执行过程中的每一步操作，包括思考、工具调用、观察结果等。
+    **操作轨迹节点**：ReAct / Workflow 共用的「一步」抽象，供日志与 DST 消费。
+
+    ``metadata`` 约定（非强制 schema，但 DstManager 已依赖）：
+    - ``variables`` / ``variable`` / ``relations`` / ``constraints``：列表或单对象，
+      用于 **自动推进建模槽位**。
     """
-    
-    step_id: int = Field(..., description="步骤序号")
-    type: ActionType = Field(..., description="操作类型")
-    tool_name: Optional[str] = Field(None, description="工具名称")
-    
-    # 输入输出
-    input_params: dict = Field(default_factory=dict, description="输入参数（脱敏后）")
-    output_summary: str = Field("", description="输出摘要（截断处理，防溢出）")
-    
-    # 执行信息
-    duration_ms: int = Field(0, description="执行耗时（毫秒）")
-    is_error: bool = Field(False, description="是否出错")
-    error_recovery: Optional[str] = Field(None, description="错误恢复策略")
-    
-    # 额外上下文
-    metadata: dict = Field(default_factory=dict, description="额外元数据")
+
+    step_id: int = Field(..., description="单调递增步骤号，对应 UI 进程时间线")
+    type: ActionType = Field(..., description="本步语义类别（思考 / 工具 / 观察 …）")
+    tool_name: Optional[str] = Field(None, description="被调用技能或工具的 id")
+
+    # --- I/O 摘要：进入长期日志前应脱敏 / 截断（防 PII 与超大 JSON）---
+    input_params: dict = Field(default_factory=dict, description="工具入参（已脱敏为佳）")
+    output_summary: str = Field("", description="工具出参摘要，供下一轮提示词压缩引用")
+
+    # --- 执行遥测：用于性能分析与 HITL 触发规则 ---
+    duration_ms: int = Field(0, description="本步 wall 时间")
+    is_error: bool = Field(False, description="工具是否抛错或业务失败")
+    error_recovery: Optional[str] = Field(None, description="可选恢复策略标签或说明")
+
+    # --- DST / 业务写回：键名与 DstManager._update_dst_state 对齐 ---
+    metadata: dict = Field(default_factory=dict, description="扩展元数据；DST 槽位写回见类说明")
     
     class Config:
         use_enum_values = True

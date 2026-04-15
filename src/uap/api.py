@@ -1,6 +1,19 @@
 """
-UAP API Class
-Provides Python API for JavaScript frontend calls
+UAPApi —— **桌面 Harness**：PyWebView 前端 ``window.pywebview.api`` 的 Python 侧总线
+================================================================================
+
+职责分层（与「行动模式 / 记忆 / 工具」的落点）：
+
+- **Harness**：把 UI 事件转为对 ``ProjectService`` / ``PredictionService`` / ``CardManager``
+  等的调用，并返回可 JSON 序列化的 dict；不负责具体 ReAct 循环（在 service 内）。
+- **记忆与知识**：对话落盘经 ``project_store``；向量检索等由独立 API 方法暴露（若启用）。
+- **技能与工具**：``get_atomic_skills_library`` 等只读查询在 API 层暴露给「技能」面板；
+  真正执行仍在 ReAct 路径注册表中。
+- **调度**：``TaskScheduler`` 作为后台 **环境 Harness**，与单次建模请求生命周期独立。
+
+新增 API 时：保持方法名 stable（前端 JS 硬编码调用），并在 docstring 中标明副作用
+（写文件、调外部 HTTP、是否触发卡片）。
+================================================================================
 """
 
 import json
@@ -28,26 +41,30 @@ from uap.skill import get_atomic_skills_library
 
 class UAPApi:
     """
-    UAP External API Interface
-    Provides interface wrapper for frontend JavaScript calls
+    **对外 API 单例**（每个应用进程一个实例，在 ``app.py`` 中注入 ``js_api``）。
+
+    成员即各子系统 Facade；避免在此写复杂业务逻辑，保持 **Harness 薄、Service 厚**。
     """
 
     def __init__(self, config: Optional[UAPConfig] = None):
+        # --- 配置：贯穿记忆开关、LLM 端点、上下文预算等 ---
         self.config = config or load_config()
-        # Use storage.projects_root or default ~/.uap/projects
+        # 项目根：默认 ~/.uap/projects，内含各 project_id 子目录（对话 JSON、模型文件等）
         projects_root = self.config.storage.projects_root or os.path.join(
             os.path.expanduser("~"), ".uap", "projects"
         )
-        self.project_store = ProjectStore(projects_root)
+        # --- 持久化与领域服务 ---
+        self.project_store = ProjectStore(projects_root, uap_cfg=self.config)
         self.project_service = ProjectService(self.project_store, self.config)
         self.prediction_service = PredictionService(self.project_store, self.config)
+        # --- 定时预测：后台线程型 Harness，回调仍落回本实例方法 ---
         self.scheduler = self._init_scheduler()
-        
-        # Card system initialization
+
+        # --- HITL：卡片排队、超时与项目维度查询 ---
         self.card_manager = CardManager(default_timeout=300)
         self.card_generator = CardGenerator()
-        
-        # Atomic skills library
+
+        # --- 技能目录只读镜像：供前端展示，与 ReAct 注册表同源元数据 ---
         self.atomic_skills = get_atomic_skills_library()
 
     def _init_scheduler(self) -> TaskScheduler:
@@ -637,6 +654,3 @@ class UAPApi:
         except Exception as e:
             _LOG.error(f"列出目录失败: {e}")
             return {"success": False, "error": str(e), "files": []}
-
-
-from datetime import datetime

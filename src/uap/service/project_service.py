@@ -1,8 +1,16 @@
 """
-UAP 项目服务
+ProjectService —— **领域编排层**（介于 Harness ``UAPApi`` 与存储 ``ProjectStore`` 之间）
+================================================================================
 
-管理项目的创建、对话、建模等核心功能
-集成LLM模型提取能力
+典型链路：
+- **建模**：``modeling_chat`` / ``react_modeling`` —— 组装 LLM、ReAct、技能注册表、
+  DST、卡片（**RADH = ReAct + DST + HITL**）。
+- **记忆**：对话 JSON、系统模型文件经 ``ProjectStore``；可选向量检索在 API/服务扩展。
+- **提示词/上下文**：ReAct 的内置模板在 ``ReactAgent._build_context``；本服务负责
+  **注入业务事实**（项目路径、已有模型字典等）。
+
+不宜在本类直接写 PyWebView 或 HTTP 路由逻辑，保持可单测。
+================================================================================
 """
 
 from __future__ import annotations
@@ -32,12 +40,12 @@ _LOG = logging.getLogger("uap.project_service")
 
 class ProjectService:
     """
-    项目服务
-    
-    提供项目管理、模型提取、对话管理等核心功能。
-    集成LLM能力，支持从对话或文档中自动提取系统模型。
+    项目级用例的 **编排服务**：创建/打开项目、持久化消息、触发 **行动模式** 建模、
+    与文档导入、模型抽取等交叉能力。
+
+    依赖注入：``store`` 管文件与 SQLite 侧持久化；``cfg`` 提供 LLM/记忆/上下文开关。
     """
-    
+
     def __init__(
         self,
         store: ProjectStore,
@@ -541,19 +549,20 @@ class ProjectService:
         web_search_func=None,
     ) -> dict:
         """
-        使用ReAct模式进行智能建模
+        **RADH 智能建模主入口**：ReAct（行动）+ DST（槽位上下文）+ HITL（卡片）。
 
-        让LLM决定使用哪些技能，通过DST跟踪建模进度，
-        可以自主搜索网络获取信息，或通过卡片让用户确认。
+        与 ``UAPApi.modeling_chat`` 搭配：API 层负责落盘用户句；本方法负责
+        **技能与工具注册表组装**、**单次会话内 ReAct 循环**、以及可选 **卡片确认**。
 
         Args:
-            project_id: 项目ID
-            user_message: 用户消息
-            card_manager: 卡片管理器（可选）
-            web_search_func: 网络搜索函数（可选）
+            project_id: 目标项目
+            user_message: 本轮用户自然语言输入（已进入 store 的消息列表由 API 维护）
+            card_manager: 传入则启用 ``ReactCardIntegration``（人在环确认建模结果）
+            web_search_func: 传入则注册 ``web_search`` 工具（否则不暴露网络能力）
 
         Returns:
-            dict: 建模结果
+            dict: 含 ``ok``、``message``、``steps``、``dst_state``、``pending_card`` 等，
+            供 **Harness** 前端刷新「进程 / DST / 卡片」。
         """
         try:
             from uap.react import (
@@ -569,49 +578,47 @@ class ProjectService:
             _LOG.info("[ReactModeling] Starting: project=%s, message=%s",
                       project_id, user_message[:50])
 
-            # 1. 创建DST管理器
+            # --- 1. DST：会话内「建模阶段 + 槽位」状态机（上下文工程）---
             dst_manager = DstManager()
 
-            # 2. 创建LLM客户端
+            # --- 2. LLM 客户端：提示词工程在 ReactAgent 内；此处只配端点与模型名 ---
             llm_cfg = OllamaConfig(
                 base_url=self._cfg.llm.base_url,
                 model=self._cfg.llm.model,
             )
             llm_client = OllamaClient(llm_cfg)
 
-            # 3. 构建技能注册表
+            # --- 3. 技能注册表 = 原子库 + 动态业务技能（工具系统「白名单」）---
             skills_registry = {}
 
-            # 添加原子技能
+            # 内置原子技能：来自静态元数据字典，一般不含项目闭包
             atomic_skills = get_atomic_skills_library()
             for skill_id, skill_meta in atomic_skills.items():
                 skills_registry[skill_id] = AtomicSkill(skill_meta)
 
-            # 添加Web搜索技能
+            # 可选：Web 搜索（需 Harness 注入合规的 search 函数，避免任意 SSRF）
             if web_search_func:
                 web_skill = create_web_search_skill(web_search_func)
                 skills_registry["web_search"] = web_skill
 
-            # 添加模型提取技能
+            # 动态技能：闭包捕获 self，实现「提取 / 变量 / 关系」与 ProjectStore 交互
             model_extract_skill = self._create_model_extraction_skill()
             skills_registry["extract_model"] = model_extract_skill
 
-            # 添加变量定义技能
             variable_skill = self._create_variable_definition_skill()
             skills_registry["define_variable"] = variable_skill
 
-            # 添加关系发现技能
             relation_skill = self._create_relation_discovery_skill()
             skills_registry["discover_relations"] = relation_skill
 
-            # 添加文件访问技能（智能体原生能力 - 已授权）
+            # 项目沙箱内读文件：缩小 **工具授权面**（仅 project_folder 下）
             from uap.react.file_access_skill import create_file_access_skill
             file_skill = create_file_access_skill(
                 project_folder=project.folder_path
             )
             skills_registry["file_access"] = file_skill
 
-            # 4. 创建ReAct Agent
+            # --- 4. ReAct 引擎：迭代上限与时间上限在构造参数体现（安全 Harness）---
             react_agent = ReactAgent(
                 llm_client=llm_client,
                 skills_registry=skills_registry,

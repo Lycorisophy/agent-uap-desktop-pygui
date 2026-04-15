@@ -1,7 +1,13 @@
 """
-UAP ReAct Agent系统 - 模块入口
+uap.react —— **八大行动模式**里「ReAct + DST + 工具技能」的聚合导出入口
+======================================================================
 
-提供基于思考-行动-观察循环的智能体能力。
+当前实现以 **ReAct**（``ReactAgent``）为主轴，``DstManager`` 提供 **槽位式上下文**，
+``*_skill`` 提供 **原子工具**封装；**HITL** 通过 ``ReactCardIntegration`` 与 ``card`` 包协作。
+
+新增其它行动模式（如显式 Planner）时：建议平行新建子模块（``uap/plan`` 等），
+再在 ``ProjectService`` 中按配置切换，避免把多种模式的提示词揉进同一 ``_build_context``。
+======================================================================
 """
 
 from uap.react.react_agent import (
@@ -28,6 +34,7 @@ from uap.react.file_access_skill import (
     create_file_access_skill,
     create_external_file_access_skill,
 )
+from uap.react.card_integration import ReactCardIntegration
 
 
 def create_react_agent(
@@ -83,6 +90,8 @@ __all__ = [
     "ExternalFileAccessSkill",
     "create_file_access_skill",
     "create_external_file_access_skill",
+    # HITL
+    "ReactCardIntegration",
     # Factory
     "create_react_agent",
 ]

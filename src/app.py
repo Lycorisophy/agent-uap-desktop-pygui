@@ -1,6 +1,13 @@
 """
-UAP - 复杂系统未来势态量化预测统一智能体
-主入口文件
+UAP 桌面应用主入口 —— **进程级 Harness**（PyWebView + 线程模型 + JS API 绑定）
+================================================================================
+
+- **行动模式 / 技能 / 记忆**：逻辑在 ``uap.service`` / ``uap.react`` / ``uap.project``；
+  本文件只负责拉起窗口、注入 ``UAPApi``、启动调度线程等 **运行时胶水**。
+- **上下文 / 提示词**：不在此拼接；避免把业务字符串写进桌面壳。
+
+修改启动流程（调试端口、多窗口）时，保持 ``UAPApi`` 单例语义与调度器生命周期一致。
+================================================================================
 """
 
 import os
@@ -21,22 +28,27 @@ logging.basicConfig(
 _LOG = logging.getLogger("uap.main")
 _LOG.info("UAP application starting...")
 
-# 添加src目录到路径
-src_dir = Path(__file__).parent / "src"
-sys.path.insert(0, str(src_dir))
+# 将 app.py 所在目录加入路径，保证可从任意工作目录导入 uap
+_src_root = Path(__file__).resolve().parent
+if str(_src_root) not in sys.path:
+    sys.path.insert(0, str(_src_root))
 
 from uap.config import load_config
 from uap.api import UAPApi
 
 
 class UAPApplication:
-    """UAP 桌面应用主类"""
+    """
+    **桌面壳状态机**：配置加载 → API 单例 → 调度器 → 主窗口。
+
+    成员 ``api`` 即 JS 侧所见的 ``pywebview.api`` 对象；勿在其它线程无锁修改其内部可变状态。
+    """
 
     def __init__(self, debug: bool = False):
-        self.debug = debug
-        self.config = load_config()
-        self.api: UAPApi = None
-        self.window: webview.Window = None
+        self.debug = debug  # 是否启用 webview 调试工具（开发期）
+        self.config = load_config()  # 全局 YAML + 本地覆盖
+        self.api: UAPApi = None  # 延迟到 start() 构造，避免 import 副作用过重
+        self.window: webview.Window = None  # 主窗体引用
 
     def start(self):
         """启动应用"""

@@ -1,6 +1,14 @@
 """
-Ollama客户端封装
-提供与本地Ollama服务的通信接口
+OllamaClient —— **推理 Harness**：把「消息列表」送到本地 Ollama HTTP API
+================================================================
+
+在整体架构中的位置：
+- **提示词工程**：上游拼装 ``messages``（system/user）；本类不负责模板内容。
+- **上下文工程**：若消息过长，应在调用前依据 ``UapConfig.context_compression`` 截断/摘要。
+- **行动模式**：ReAct 每步 ``chat`` 一次；批处理/流式可扩展 ``stream=True`` 分支。
+
+与 **技能系统** 的边界：本模块不解析 Thought/Action；仅传输与错误重试（如有）。
+================================================================
 """
 
 import json
@@ -48,24 +56,19 @@ class OllamaConfig:
 
 class OllamaClient:
     """
-    Ollama API客户端
-    
-    提供与Ollama服务通信的封装，支持：
-    - 聊天补全
-    - 嵌入生成
-    - 模型列表查询
-    - 服务健康检查
+    **本地 LLM 网关**：同步 HTTP 客户端，供 ``ReactAgent``、``ModelExtractor``、
+    ``SkillManager`` 等复用。
+
+    线程安全：``httpx.Client`` 实例不宜跨 asyncio 任务共享；桌面应用主线程一般可接受。
     """
-    
+
     def __init__(self, config: Optional[OllamaConfig] = None):
         """
-        初始化Ollama客户端
-        
         Args:
-            config: Ollama配置
+            config: 含 ``base_url`` / ``model`` / ``timeout``；缺省连本机 11434。
         """
-        self.config = config or OllamaConfig()
-        self.client = httpx.Client(
+        self.config = config or OllamaConfig()  # 连接与默认模型名
+        self.client = httpx.Client(  # 长连接型 **传输层 Harness**
             base_url=self.config.base_url,
             timeout=self.config.timeout
         )
@@ -117,19 +120,19 @@ class OllamaClient:
         options: Optional[dict] = None
     ) -> dict | Generator[dict, None, None]:
         """
-        聊天补全请求
-        
+        **聊天补全**（Ollama ``/api/chat``）：ReAct / 技能链 / 抽取器共用的最低层调用。
+
         Args:
-            messages: 消息列表，格式 [{"role": "user", "content": "..."}]
-            model: 模型名称，默认使用配置中的模型
-            stream: 是否流式返回
-            options: 额外选项如 temperature, top_p 等
-            
+            messages: OpenAI 风格消息列表；**上下文工程**在调用前完成截断与角色划分。
+            model: 覆盖默认 ``OllamaConfig.model``（便于 A/B 或用户切换）。
+            stream: True 时返回生成器，供 UI 流式渲染（需上层消费迭代器）。
+            options: 透传 Ollama ``options``（temperature、num_ctx 等）。
+
         Returns:
-            dict或Generator: 完整响应或流式生成器
+            非流式：整包 JSON；流式：逐块 dict 生成器。
         """
         model = model or self.config.model
-        
+
         payload = {
             "model": model,
             "messages": messages,
@@ -137,11 +140,11 @@ class OllamaClient:
         }
         if options:
             payload["options"] = options
-        
-        _LOG.info("[Ollama] chat request: model=%s, msg_count=%d, stream=%s", 
+
+        _LOG.info("[Ollama] chat request: model=%s, msg_count=%d, stream=%s",
                   model, len(messages), stream)
-        
-        # 使用Ollama原生API
+
+        # Ollama 原生对话端点（与 OpenAI 兼容路由区分）
         api_path = "/api/chat"
         
         if stream:

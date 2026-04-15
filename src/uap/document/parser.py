@@ -134,7 +134,7 @@ class DocumentParser(ABC):
             for match in matches:
                 equation = match.strip() if isinstance(match, str) else match[0].strip()
                 if equation and len(equation) > 2:
-equations.append(equation)
+                    equations.append(equation)
         
         # 去重
         seen = set()
@@ -387,9 +387,11 @@ class MarkdownParser(DocumentParser):
                 items = re.split(r'[,，、]', content)
                 for item in items:
                     item = item.strip()
-if item and len(item) < 50:
+                    if item and len(item) < 50:
                         # 尝试提取名称和值
-                        name_value = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*[=＝]\s*([\d\.\-]+)', item)
+                        name_value = re.match(
+                            r'([A-Za-z_][A-Za-z0-9_]*)\s*[=＝]\s*([\d\.\-]+)', item
+                        )
                         if name_value:
                             entity = SystemEntity(
                                 entity_type=EntityType.VARIABLE,
@@ -397,7 +399,7 @@ if item and len(item) < 50:
                                 value=name_value.group(2),
                                 description="从列表提取",
                                 source="变量列表",
-                                confidence=0.7
+                                confidence=0.7,
                             )
                         else:
                             entity = SystemEntity(
@@ -405,7 +407,7 @@ if item and len(item) < 50:
                                 name=item,
                                 description="从列表提取",
                                 source="变量列表",
-                                confidence=0.5
+                                confidence=0.5,
                             )
                         entities.append(entity)
         

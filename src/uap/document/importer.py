@@ -206,7 +206,7 @@ class DocumentImporter:
             return PdfParser()
         elif document.doc_type == DocumentType.WORD:
             return WordParser()
-else:
+        else:
             return MarkdownParser()
     
     def _enhance_with_llm(

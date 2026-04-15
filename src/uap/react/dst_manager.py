@@ -1,8 +1,21 @@
 """
-UAP DST对话状态追踪管理器
+UAP DST（Dialogue State Tracking）—— **上下文工程 / 记忆写回** 的结构化视图
+================================================================================
 
-Dialogue State Tracking - 跟踪智能体在建模过程中的状态变化。
-维护变量、关系、约束等建模元素的收集进度。
+DST 与「八大行动模式」的关系：
+- 在 **ReAct** 中，DST 不代替模型推理，而是把每步工具结果折叠成「建模阶段 +
+  槽位（变量/关系/约束）」，供下一轮 **提示词** 引用，减少模型在长对话中「遗忘进度」。
+- 其它模式（如 **Plan-Execute**）可复用同一 ``DstState``，仅在计划器与执行器之间
+  更新阶段字段。
+
+与 **记忆与知识系统**：
+- ``DstState`` / ``SkillSession`` 偏 **会话内工作记忆**；落盘对话见 ``project_store``
+  的 messages；向量检索见 ``vector`` 模块。
+
+与 **技能与工具系统**：
+- ``add_action`` 消费 ``ActionNode.metadata`` 中的 variables/relations 等，
+  由具体技能在执行成功时写入（约定式接口）。
+================================================================================
 """
 
 from __future__ import annotations
@@ -21,7 +34,11 @@ _LOG = logging.getLogger("uap.dst")
 
 
 class ModelingStage(str, Enum):
-    """建模阶段枚举"""
+    """
+    建模流水线阶段（**任务型 DST 槽位**），与 UI「DST」页签一致。
+
+    阶段推进可由规则（根据已收集变量数等）或 LLM 在提示词中被引导完成。
+    """
     INITIAL = "initial"                 # 初始阶段
     INTENT_DETECTION = "intent"         # 意图识别
     VARIABLE_COLLECTION = "variables"   # 变量收集
@@ -34,37 +51,35 @@ class ModelingStage(str, Enum):
 
 class DstState(BaseModel):
     """
-    DST核心状态 - 追踪建模进度
+    **DST 核心状态**：可序列化快照，供 API 返回前端与写入 ``ReactResult.dst_state``。
 
-    记录当前会话中已识别的建模元素及其状态。
+    与 ``SkillSession`` 分工：后者存 **轨迹**（ActionNode 列表），本类存 **槽位聚合**。
     """
-    session_id: str = Field(default_factory=str)
-    project_id: str = ""
+    session_id: str = Field(default_factory=str)  # 与会话 ID 一致
+    project_id: str = ""  # 非空时支持项目级统计与多会话合并（预留）
 
-    # 建模阶段
+    # --- 阶段机：驱动提示词里的「当前应优先补全哪类槽位」---
     current_stage: ModelingStage = ModelingStage.INITIAL
-    stage_history: list[str] = Field(default_factory=list)  # 阶段转换历史
+    stage_history: list[str] = Field(default_factory=list)  # 人类可读阶段变迁，便于审计
 
-    # 已识别的变量
+    # --- 槽位：从工具 metadata 合并而来，键一般为业务主键名 ---
     variables: dict[str, dict] = Field(default_factory=dict)
-    # 已发现的关系
     relations: dict[str, dict] = Field(default_factory=dict)
-    # 已定义的约束
     constraints: list[dict] = Field(default_factory=list)
 
-    # 置信度
+    # --- 置信度：供后续自动触发 HITL 或排序展示 ---
     variable_confidence: float = 0.0
     relation_confidence: float = 0.0
     overall_confidence: float = 0.0
 
-    # 用户确认状态
+    # --- HITL：与卡片系统协作的挂点（待确认 / 已确认 ID）---
     pending_confirmations: list[dict] = Field(default_factory=list)  # 待确认项
     confirmed_items: list[str] = Field(default_factory=list)        # 已确认项
 
-    # 元数据
+    # --- 元数据 ---
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-    last_action_at: Optional[datetime] = None
+    last_action_at: Optional[datetime] = None  # 最后工具调用时间，用于超时与 UI
 
     class Config:
         use_enum_values = True
@@ -72,20 +87,20 @@ class DstState(BaseModel):
 
 class DstManager:
     """
-    DST对话状态追踪管理器
+    **DST 管理器**：会话生命周期内维护 ``SkillSession`` + ``DstState`` 双表。
 
-    职责：
-    1. 为每个会话创建和维护DST状态
-    2. 跟踪建模进度（变量→关系→约束）
-    3. 评估建模完成度
-    4. 触发卡片确认
+    职责摘要：
+    1. 创建会话并把用户首句写入 **工作记忆**（user_query / intent）
+    2. 每步工具后 ``add_action`` → 解析 metadata → 更新槽位与阶段
+    3. ``get_session_state`` 等为 **Harness**（API/前端）提供只读视图
+    4. 与 **ReactCardIntegration** 配合实现关键槽位的 HITL（本类存 pending 列表）
     """
 
     def __init__(self):
-        """初始化DST管理器"""
-        self._sessions: dict[str, SkillSession] = {}  # 技能会话
-        self._dst_states: dict[str, DstState] = {}    # DST状态
-        self._project_states: dict[str, DstState] = {}  # 项目级DST状态
+        """初始化内存态索引（进程重启后需依赖持久化消息重建，当前为会话内）。"""
+        self._sessions: dict[str, SkillSession] = {}  # session_id → 轨迹与计数
+        self._dst_states: dict[str, DstState] = {}    # session_id → 槽位快照
+        self._project_states: dict[str, DstState] = {}  # project_id → 跨会话聚合（预留）
 
         _LOG.info("[DstManager] Initialized")
 

@@ -1,7 +1,17 @@
 """
-UAP 向量检索系统 - 检索服务模块
+VectorSearchService —— **记忆与知识**中的「向量检索层」+ **上下文工程（RAG）**
+================================================================================
 
-提供语义搜索、RAG（检索增强生成）等高级功能。
+与 **提示词工程** 的衔接：
+- ``RAGContext.to_prompt`` 把检索结果塞进 **system 风格**消息（当前实现）或
+  可改为 user 附加段；与 ``ReactAgent`` 的单条 user 大文本策略不同，集成时注意重复。
+
+与 **行动模式**：
+- ReAct 可在 ``project_service`` 组装上下文时调用本服务，把 hits 注入 ``extra_context``。
+
+与 **Harness**：
+- 可被独立 API 暴露给前端「知识库搜索」；不负责鉴权，调用方控制集合范围。
+================================================================================
 """
 
 from datetime import datetime
@@ -31,13 +41,14 @@ class SearchResult:
 @dataclass
 class RAGContext:
     """
-    RAG 上下文
-    
-    包含检索到的上下文文档和元数据。
+    **RAG 上下文对象**：检索结果 + 原始 query，用于拼装多段 system/user 消息。
+
+    ``to_prompt`` 是 **提示词模板**的一部分：调整前缀「参考文档:」即改变模型对
+    引文的信任方式（归因提示 / 防幻觉提示可在此加强）。
     """
-    documents: List[SearchResult]
-    query: str
-    created_at: datetime = None
+    documents: List[SearchResult]  # 已按相似度排序的命中列表
+    query: str  # 用户或子 Agent 的原始问题
+    created_at: datetime = None  # 组装时间，便于缓存失效策略
     
     def __post_init__(self):
         if self.created_at is None:

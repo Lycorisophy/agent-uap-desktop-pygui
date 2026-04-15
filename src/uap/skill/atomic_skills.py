@@ -1,12 +1,19 @@
 """
-UAP 原子技能库
+UAP 原子技能库 —— **技能与工具系统**中的「可注册可执行」最小单元
+================================================================
 
-参考 Chimera 的原子技能设计，将技能按功能分为：
-- data: 数据获取
-- preprocessing: 数据预处理
-- feature: 特征工程
-- model: 模型训练
-- postprocess: 后处理
+与设计角色的关系：
+
+- **对 ReAct / Plan 等行动模式**：每个 ``AtomicSkill`` 即一个 **Tool**；``skill_id``
+  出现在提示词的技能列表中，模型输出 ``Action: <skill_id>`` 后由 ``ReactAgent``
+  分发到 ``execute``。
+- **提示词工程**：``SkillMetadata.description`` + ``input_schema`` 构成模型所见的
+  工具说明；应保持「短描述 + 明确 JSON 字段名」。
+- **Harness**：动态技能（如 ``project_service`` 里注入的 extract/define 系列）
+  在运行时 ``set_executor``，把 **业务逻辑** 挂到 **元数据壳** 上。
+
+分类（``SkillCategory``）沿用 Chimera 风格，便于与模板、链式推荐（``get_skill_chain_recommendations``）对齐。
+================================================================
 """
 
 from __future__ import annotations
@@ -38,28 +45,33 @@ class SkillComplexity(str, Enum):
 
 @dataclass
 class SkillMetadata:
-    """技能元数据"""
-    skill_id: str                           # 唯一标识
-    name: str                                # 显示名称
-    description: str                          # 自然语言描述
-    category: SkillCategory                   # 分类
-    subcategory: Optional[str] = None        # 子分类
-    
-    # 技能规格
-    input_schema: dict[str, Any] = field(default_factory=dict)   # 输入规格
-    output_schema: dict[str, Any] = field(default_factory=dict)  # 输出规格
-    
-    # 执行信息
-    estimated_time: int = 30                  # 预估执行时间（秒）
+    """
+    **技能元数据**：供 UI 列表、LLM 工具说明、前置校验三处复用。
+
+    ``input_schema`` 建议使用 JSON Schema 子集（字段名、类型、是否 required），
+    与 ``AtomicSkill.validate_input`` 的规则保持一致，减少 **提示词与实现漂移**。
+    """
+    skill_id: str                           # 与 ReAct Action 对齐的主键
+    name: str                                # 人类可读短名（UI）
+    description: str                          # **提示词**用：一句话说明副作用与输入期望
+    category: SkillCategory                   # 分组与统计用
+    subcategory: Optional[str] = None        # 细分类（可选）
+
+    # --- 规格：连接「模型幻想出的参数」与真实 Python 签名 ---
+    input_schema: dict[str, Any] = field(default_factory=dict)   # 输入 JSON 形状说明
+    output_schema: dict[str, Any] = field(default_factory=dict)  # 输出形状（文档/校验用）
+
+    # --- 运行时策略 ---
+    estimated_time: int = 30                  # 调度与 UI 预估
     complexity: SkillComplexity = SkillComplexity.MODERATE
-    requires_confirmation: bool = False       # 是否需要确认
-    requires_gpu: bool = False               # 是否需要GPU
-    
-    # 依赖信息
-    required_skills: list[str] = field(default_factory=list)  # 前置技能
-    provides_skills: list[str] = field(default_factory=list)  # 提供的能力
-    
-    # 版本信息
+    requires_confirmation: bool = False       # **HITL**：为 True 时 ReAct 不直接执行
+    requires_gpu: bool = False               # 资源声明（当前未强校验）
+
+    # --- 技能链 / 规划（若接入 Plan 模式）---
+    required_skills: list[str] = field(default_factory=list)  # 前置技能 id
+    provides_skills: list[str] = field(default_factory=list)  # 完成后解锁的能力标签
+
+    # --- 版本与审计 ---
     version: str = "1.0"
     author: str = "system"
     created_at: datetime = field(default_factory=datetime.now)
@@ -88,11 +100,16 @@ class SkillMetadata:
 
 
 class AtomicSkill:
-    """原子技能基类"""
-    
+    """
+    **原子技能实例**：元数据 + 可选 ``_executor``（默认库内为占位实现）。
+
+    执行路径：``ReactAgent._execute_skill`` → ``validate_input`` → ``execute``；
+    若需写回 DST，请在 ``execute`` 返回 dict 中带 ``metadata`` 字段（由具体技能约定）。
+    """
+
     def __init__(self, metadata: SkillMetadata):
-        self.metadata = metadata
-        self._executor: Optional[Callable] = None
+        self.metadata = metadata  # 对外只读语义；勿在 execute 内改 id，避免注册表不一致
+        self._executor: Optional[Callable] = None  # **Harness 注入点**：业务闭包
     
     def set_executor(self, executor: Callable):
         """设置执行器"""
