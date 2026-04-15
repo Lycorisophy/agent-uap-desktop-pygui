@@ -33,6 +33,7 @@ class ModelSource(str, Enum):
     DOCUMENT = "document"         # 文档导入
     MANUAL = "manual"             # 手动创建
     IMPORTED = "imported"          # 外部导入
+    LLM_EXTRACTED = "llm_extracted"  # LLM 结构化抽取
 
 
 class Variable(BaseModel):

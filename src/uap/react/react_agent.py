@@ -19,8 +19,9 @@ UAP ReAct Agent —— 「八大行动模式」中的 ReAct 实现层
 `SkillSession.actions`；长期记忆应由 `project_store` 消息、`vector`/`history`
 等模块负责（见 `config.MemoryConfig`）。
 
-**提示词工程**：`_build_context` 内的 f-string 即「系统任务 + DST 摘要 + 技能目录 +
-轨迹」的单一 user 消息模板；修改输出格式时需同步 `_parse_llm_response`。
+**提示词工程**：`_build_context` 使用 ``uap.prompts`` 资产 ``react_decision_user.md`` 拼装
+「系统任务 + DST 摘要 + 技能目录 + 轨迹」的单一 user 消息；修改输出格式时需同步
+`_parse_llm_response`。
 
 **上下文工程**：最近 N 步轨迹、DST 摘要、技能列表长度均影响 token；后续可接入
 `UapConfig.context_compression` 做预算与摘要。
@@ -49,6 +50,7 @@ from uap.skill.models import (
     SkillSession,
 )
 from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+from uap.prompts import PromptId, render
 
 _LOG = logging.getLogger("uap.react")
 
@@ -299,38 +301,15 @@ class ReactAgent:
         # DST：把「槽位填充进度」转成自然语言，引导模型按阶段推进（上下文工程）
         dst_summary = self._format_dst_summary(dst_session)
 
-        # --- 提示词工程（硬编码模板）：修改格式须同步 _parse_llm_response ---
-        prompt = f"""你是一个复杂系统建模助手。用户的任务是：
-{task}
-
-{extra_context.get('system_model', '')}
-
-{dst_summary}
-
-当前技能库：
-{skills_desc}
-
-最近执行历史（供参考）：
-{trajectory}
-
-请决定下一步行动。
-
-输出格式（严格遵循）：
-1. 如果需要调用技能：
-Thought: [你的思考过程]
-Action: [技能ID]
-Action Input: {{"参数名": "参数值"}}
-
-2. 如果任务完成：
-Thought: [总结你的工作]
-FINAL_ANSWER: [最终答案摘要]
-
-3. 如果需要更多信息或用户确认：
-Thought: [说明需要什么]
-Action: ask_user
-Action Input: {{"question": "你的问题", "options": ["选项1", "选项2"]}}
-"""
-        return prompt
+        # --- 提示词资产：``react_decision_user.md`` 须与 _parse_llm_response 同步 ---
+        return render(
+            PromptId.REACT_DECISION_USER,
+            task=task,
+            system_model=extra_context.get("system_model", "") or "",
+            dst_summary=dst_summary,
+            skills_desc=skills_desc,
+            trajectory=trajectory,
+        )
 
     def _format_skills_list(self) -> str:
         """格式化技能列表"""

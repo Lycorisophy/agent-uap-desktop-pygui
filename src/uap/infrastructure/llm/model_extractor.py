@@ -7,13 +7,14 @@ ModelExtractor —— **提示词工程**驱动的「结构化抽取」管线
   适合对话摘要后批量落盘或文档导入后的冷启动。
 
 **上下文工程**：调用方负责拼接 ``messages``（对话历史/文档片段）；本模块用
-``MODEL_EXTRACTION_SYSTEM_PROMPT`` 固定 **system 侧 JSON schema 说明**，降低格式漂移。
+``uap.prompts`` 资产 ``model_extraction_system.md`` 固定 **system 侧 JSON schema 说明**，
+降低格式漂移。
 
 **记忆与知识**：抽取结果通常写入 ``SystemModel`` 并由 ``project_store`` 持久化；
   不向量化逻辑放在此文件之外。
 
-修改 ``MODEL_EXTRACTION_SYSTEM_PROMPT`` 时，必须同步 ``_parse_model_json`` 等解析器
-与 ``uap.project.models`` 字段，避免 **提示词与类型定义漂移**。
+修改该资产时，必须同步 ``_parse_response`` / ``_extract_json`` 与 ``uap.project.models`` 字段，
+避免 **提示词与类型定义漂移**。
 ================================================================
 """
 
@@ -29,63 +30,12 @@ _LOG.setLevel(logging.DEBUG)
 
 from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.project.models import SystemModel, Variable, Relation, Constraint, ModelSource
+from uap.prompts import PromptId, load_raw, render
 
 
-# 系统模型提取的系统提示词
-MODEL_EXTRACTION_SYSTEM_PROMPT = """你是一个复杂系统建模专家。你的任务是从用户的描述中提取系统的数学模型。
-
-## 输出格式
-请严格按照以下JSON格式输出，不要包含任何其他内容：
-
-{
-    "variables": [
-        {
-            "name": "变量名称",
-            "type": "continuous|discrete|binary|categorical",
-            "description": "变量描述",
-            "unit": "单位（如果有）",
-            "range": {"min": 数值, "max": 数值} // 可选
-        }
-    ],
-    "relations": [
-        {
-            "from_var": "变量A",
-            "to_var": "变量B",
-            "type": "equation|differential|causal|correlation",
-            "expression": "数学表达式（如果有）",
-            "description": "关系描述"
-        }
-    ],
-    "constraints": [
-        {
-            "type": "range|invariant|boundary",
-            "expression": "约束表达式",
-            "description": "约束描述"
-        }
-    ],
-    "confidence": 0.0-1.0,
-    "reasoning": "建模推理过程简述"
-}
-
-## 注意事项
-1. variables至少包含一个变量
-2. relations描述变量之间的关系，可以是因果、相关或数学方程
-3. constraints是系统的约束条件，如取值范围、物理限制等
-4. confidence表示模型提取的置信度（0-1）
-5. 如果描述不足以建立有效模型，confidence应较低
-
-## 变量类型说明
-- continuous: 连续变量（如温度、浓度）
-- discrete: 离散变量（如数量、计数）
-- binary: 二值变量（如开关状态）
-- categorical: 分类变量（如反应类型）
-
-## 关系类型说明
-- equation: 数学方程关系
-- differential: 微分方程关系
-- causal: 因果关系
-- correlation: 相关关系
-"""
+def get_model_extraction_system_prompt() -> str:
+    """system 侧 JSON 契约（资产：``model_extraction_system.md``）。"""
+    return load_raw(PromptId.MODEL_EXTRACTION_SYSTEM)
 
 
 @dataclass
@@ -138,7 +88,7 @@ class ModelExtractor:
         # 添加系统提示
         chat_messages.append({
             "role": "system",
-            "content": system_prompt or MODEL_EXTRACTION_SYSTEM_PROMPT
+            "content": system_prompt or get_model_extraction_system_prompt()
         })
         
         # 添加对话历史（最近10轮）
@@ -150,8 +100,8 @@ class ModelExtractor:
         
         # 添加用户当前的系统描述
         chat_messages.append({
-            "role": "user", 
-            "content": f"请从以下描述中提取系统模型：\n\n{user_prompt}"
+            "role": "user",
+            "content": render(PromptId.MODEL_EXTRACTION_USER_PREFIX, user_prompt=user_prompt),
         })
         
         try:

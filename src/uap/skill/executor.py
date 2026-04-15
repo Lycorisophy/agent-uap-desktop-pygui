@@ -19,6 +19,7 @@ from uap.skill.models import (
 )
 from uap.skill.manager import SkillManager
 from uap.skill.generator import SkillGenerator
+from uap.prompts import PromptId, render
 
 
 class ModelingSkillExecutor:
@@ -181,19 +182,13 @@ class ModelingSkillExecutor:
             if step.prompt_template:
                 steps_content.append(f"## {step.title}\n{step.prompt_template}")
         
-        guidance_prompt = f"""
-## 参考技能: {best_skill.name}
-
-{best_skill.description}
-
-### 执行指导:
-{chr(10).join(steps_content)}
-
----
-
-## 用户需求:
-{user_intent}
-"""
+        guidance_prompt = render(
+            PromptId.SKILL_EXECUTOR_GUIDANCE,
+            skill_name=best_skill.name,
+            skill_description=best_skill.description,
+            steps_block=chr(10).join(steps_content),
+            user_intent=user_intent,
+        )
         
         # 调用提取器
         result = self.extractor.extract_from_conversation(

@@ -15,103 +15,7 @@ from uap.skill.models import (
     SkillCategory, ActionNode, ActionType
 )
 from uap.llm import OllamaClient
-
-
-# ==================== Prompt 模板 ====================
-
-SKILL_GENERATION_SYSTEM_PROMPT = """你是一个复杂系统建模和预测专家。你的任务是根据 Agent 执行日志，为 UAP 项目生成专业的技能文档。
-
-## 输出要求
-1. 生成标准 Markdown 格式的技能文档
-2. 技能必须是可执行的，包含清晰的步骤
-3. 使用中文输出
-4. 技能应该专注于复杂系统建模或预测相关的任务
-
-## 技能结构
-每个技能必须包含:
-- name: 简洁的技能名称（动词短语）
-- description: 一句话描述
-- trigger_conditions: 触发条件列表
-- preconditions: 前置条件
-- steps: 执行步骤列表
-- parameters: 参数定义
-
-## 质量标准
-- 步骤必须清晰可执行
-- 参数必须明确定义
-- 考虑边界情况和错误处理"""
-
-
-SKILL_GENERATION_USER_PROMPT = """## 项目信息
-- 项目ID: {project_id}
-- 项目名称: {project_name}
-- 系统类型: {system_type}
-- 领域: {domain}
-
-## 执行轨迹
-{action_trajectory}
-
-## 用户原始问题
-{user_query}
-
-## 最终输出
-{final_output}
-
-请根据以上信息，生成一个专业的技能文档。输出 JSON 格式:
-
-```json
-{{
-  "name": "技能名称",
-  "description": "一句话描述",
-  "category": "modeling/prediction/analysis/visualization",
-  "trigger_conditions": ["触发条件1", "触发条件2"],
-  "preconditions": ["前置条件1"],
-  "steps": [
-    {{
-      "step_number": 1,
-      "title": "步骤标题",
-      "description": "步骤详细描述",
-      "action_type": "tool_call/thought",
-      "tool_name": "工具名或null",
-      "prompt_template": "Prompt模板或null",
-      "expected_output": "预期输出描述"
-    }}
-  ],
-  "parameters": [
-    {{
-      "name": "参数名",
-      "description": "参数描述",
-      "type": "string/number/boolean",
-      "required": true/false,
-      "default": "默认值或null"
-    }}
-  ]
-}}
-```"""
-
-
-SKILL_VALIDATION_PROMPT = """你是一个技能评估专家。请评估以下技能的完整性和可用性。
-
-## 技能内容
-{skill_content}
-
-## 评估标准
-1. 完整性: 是否包含所有必要字段
-2. 可执行性: 步骤是否清晰可执行
-3. 适用性: 是否适合复杂系统建模/预测场景
-4. 改进建议: 如何优化
-
-请输出 JSON 格式:
-```json
-{{
-  "is_valid": true/false,
-  "completeness_score": 0.0-1.0,
-  "executability_score": 0.0-1.0,
-  "relevance_score": 0.0-1.0,
-  "issues": ["问题1", "问题2"],
-  "suggestions": ["建议1"]
-}}
-```"""
+from uap.prompts import PromptId, load_raw, render
 
 
 class SkillGenerator:
@@ -167,8 +71,8 @@ class SkillGenerator:
             
             # 4. 调用 LLM 生成技能内容
             response = self.llm.chat([
-                {"role": "system", "content": SKILL_GENERATION_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": load_raw(PromptId.SKILL_GENERATION_SYSTEM)},
+                {"role": "user", "content": user_prompt},
             ])
             
             # 5. 解析 LLM 输出
@@ -257,14 +161,15 @@ class SkillGenerator:
             else:
                 final_output = json.dumps(session.final_output, ensure_ascii=False)[:1000]
         
-        return SKILL_GENERATION_USER_PROMPT.format(
+        return render(
+            PromptId.SKILL_GENERATION_USER,
             project_id=project_info.get("project_id", ""),
             project_name=project_info.get("name", "未命名项目"),
             system_type=project_info.get("system_type", "复杂系统"),
             domain=project_info.get("domain", "通用领域"),
             action_trajectory=trajectory_text,
-            user_query=session.user_query,
-            final_output=final_output
+            user_query=session.user_query or "",
+            final_output=final_output,
         )
     
     def _parse_llm_response(self, response: str) -> Optional[dict]:
@@ -422,10 +327,14 @@ class SkillGenerator:
         返回验证结果和改进建议。
         """
         response = self.llm.chat([
-            {"role": "system", "content": "你是一个技能评估专家。"},
-            {"role": "user", "content": SKILL_VALIDATION_PROMPT.format(
-                skill_content=skill.to_skill_md()
-            )}
+            {"role": "system", "content": load_raw(PromptId.SKILL_VALIDATION_SYSTEM)},
+            {
+                "role": "user",
+                "content": render(
+                    PromptId.SKILL_VALIDATION_USER,
+                    skill_content=skill.to_skill_md(),
+                ),
+            },
         ])
         
         try:

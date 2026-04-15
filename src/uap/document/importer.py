@@ -24,6 +24,7 @@ from uap.document.parser import (
     create_parser,
     create_parser_for_file,
 )
+from uap.prompts import PromptId, load_raw, render
 
 
 class DocumentImporter:
@@ -219,36 +220,23 @@ class DocumentImporter:
             return parsed
         
         try:
-            # 构建增强 prompt
-            prompt = f"""从以下文档内容中提取复杂系统的建模信息。
+            variable_names_repr = str(
+                [e.name for e in parsed.entities if e.entity_type.value == "variable"]
+            )
+            equations_repr = str(parsed.equations[:3])
+            prompt = render(
+                PromptId.DOCUMENT_EXTRACT_USER,
+                document_excerpt=parsed.full_text[:5000],
+                variable_names_repr=variable_names_repr,
+                equations_repr=equations_repr,
+            )
 
-## 文档内容
-{parsed.full_text[:5000]}
-
-## 已提取的信息
-变量: {[e.name for e in parsed.entities if e.entity_type.value == 'variable']}
-方程: {parsed.equations[:3]}
-
-## 提取要求
-1. 识别系统变量和参数
-2. 识别变量之间的关系
-3. 识别约束条件
-4. 识别数学方程
-
-请以 JSON 格式输出:
-{{
-  "variables": [{{"name": "变量名", "description": "描述", "unit": "单位"}}],
-  "parameters": [{{"name": "参数名", "value": "值", "description": "描述"}}],
-  "relations": [{{"from": "变量A", "to": "变量B", "type": "关系类型", "description": "描述"}}],
-  "constraints": ["约束条件1", "约束条件2"],
-  "equations": ["方程1", "方程2"]
-}}
-"""
-            
-            response = self.llm.chat([
-                {"role": "system", "content": "你是一个复杂系统建模专家。"},
-                {"role": "user", "content": prompt}
-            ])
+            response = self.llm.chat(
+                [
+                    {"role": "system", "content": load_raw(PromptId.DOCUMENT_EXTRACT_SYSTEM)},
+                    {"role": "user", "content": prompt},
+                ]
+            )
             
             # 解析 LLM 响应
             import re

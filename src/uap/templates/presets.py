@@ -11,6 +11,7 @@ from .registry import (
     PredictionConfig,
     SkillChain,
 )
+from uap.prompts import PromptId, load_raw
 
 
 # ==================== 电网频率模板 ====================
@@ -99,13 +100,7 @@ POWER_GRID_TEMPLATE = ScenarioTemplate(
         ),
     ],
     tags=["电力", "频率", "稳定性", "电网"],
-    system_prompt="""你是一个电网系统建模专家。用户将描述一个电网系统，你需要提取：
-1. 发电机参数（惯性常数、容量）
-2. 负荷特性
-3. 网络拓扑
-4. 保护设置
-
-请用自然语言引导用户完善系统描述。""",
+    system_prompt=load_raw(PromptId.SCENARIO_POWER_GRID_SYSTEM),
     user_prompt_template="我有一个包含{n_generators}台发电机和{n_loads}个负荷的{voltage_level}电网系统",
     example_queries=[
         "三台100MW火电机组并网运行，频率经常在49.8-50.2Hz波动",
@@ -463,13 +458,7 @@ CUSTOM_TEMPLATE = ScenarioTemplate(
     ),
     skill_chains=[],
     tags=["自定义", "通用"],
-    system_prompt="""你是一个复杂系统建模专家。用户将描述一个系统，你需要：
-1. 识别系统的关键状态变量
-2. 分析变量之间的关系
-3. 确定适用的物理/数学模型
-4. 评估系统的复杂度和混沌程度
-
-请用专业且易懂的语言与用户交流。""",
+    system_prompt=load_raw(PromptId.SCENARIO_CUSTOM_SYSTEM),
     example_queries=[
         "我想建模一个无人机编队飞行控制系统",
         "人体体温调节系统如何建模",

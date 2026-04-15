@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from uap.infrastructure.vector.vector_store import VectorStore, VectorRecord
 from uap.infrastructure.vector.embeddings import EmbeddingService
+from uap.prompts import PromptId, render
 
 
 @dataclass
@@ -77,19 +78,24 @@ class RAGContext:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         
-        # 添加上下文
         context_parts = []
         for i, result in enumerate(self.documents, 1):
             context_parts.append(
-                f"[文档 {i}] (相关度: {result.score:.2f})\n{result.record.content}"
+                render(
+                    PromptId.RAG_HIT_LINE,
+                    index=str(i),
+                    score=f"{result.score:.2f}",
+                    content=result.record.content,
+                )
             )
-        
+
         context_text = "\n\n".join(context_parts)
-        
-        messages.append({
-            "role": "system",
-            "content": f"参考文档:\n{context_text}"
-        })
+        messages.append(
+            {
+                "role": "system",
+                "content": render(PromptId.RAG_REFERENCE_SYSTEM, hits_text=context_text),
+            }
+        )
         
         messages.append({
             "role": "user", 
