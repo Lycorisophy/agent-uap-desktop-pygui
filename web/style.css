@@ -892,3 +892,373 @@ select {
         padding: 12px;
     }
 }
+
+/* ==================== 分析卡片样式 ==================== */
+.analysis-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.analysis-card .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.analysis-card .card-icon {
+    font-size: 18px;
+}
+
+.analysis-card h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.analysis-card .card-body {
+    margin-bottom: 12px;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+}
+
+.metric-value {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.turbulence-meter {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.meter-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.meter-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.meter-label {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.level-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.severity-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.severity-item {
+    text-align: center;
+    padding: 12px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+}
+
+.severity-item .count {
+    display: block;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.severity-item .label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.severity-item.critical .count { color: #dc2626; }
+.severity-item.high .count { color: #ef4444; }
+.severity-item.medium .count { color: #f59e0b; }
+.severity-item.low .count { color: #3b82f6; }
+
+/* ==================== 模板选择器 ==================== */
+.template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.template-card {
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.template-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-md);
+}
+
+.template-card.selected {
+    border-color: var(--primary-color);
+    background: var(--primary-light);
+}
+
+.template-card .template-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.template-card h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.template-card p {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* ==================== 时间线播放器 ==================== */
+.timeline-container {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+}
+
+.timeline-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 0;
+    overflow-x: auto;
+}
+
+.timeline-marker {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.timeline-marker.prediction { background: var(--primary-color); }
+.timeline-marker.anomaly { background: var(--danger-color); }
+.timeline-marker.past { opacity: 0.5; }
+.timeline-marker.current { transform: scale(1.5); box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.2); }
+
+.timeline-controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ==================== 异常告警弹窗 ==================== */
+.alert-modal .modal-content {
+    max-width: 500px;
+}
+
+.alert-card {
+    padding: 20px;
+}
+
+.alert-card .alert-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.alert-card .alert-icon {
+    font-size: 24px;
+}
+
+.alert-card .alert-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.alert-description {
+    font-size: 14px;
+    color: var(--text-color);
+    margin-bottom: 16px;
+}
+
+.alert-details {
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.detail-key {
+    color: var(--text-muted);
+}
+
+.alert-suggestions {
+    margin-bottom: 16px;
+}
+
+.alert-suggestions h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.alert-suggestions ul {
+    padding-left: 20px;
+    font-size: 13px;
+}
+
+.alert-suggestions li {
+    margin-bottom: 4px;
+}
+
+.alert-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ==================== 预测结果详情 ==================== */
+.prediction-detail {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.prediction-detail .detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.prediction-detail .detail-time {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.prediction-detail .detail-confidence {
+    font-weight: 600;
+    color: var(--success-color);
+}
+
+.prediction-detail .detail-body {
+    padding: 16px;
+}
+
+.prediction-detail .detail-summary {
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.prediction-detail .detail-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.metric-box {
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    text-align: center;
+}
+
+.metric-box .metric-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.metric-box .metric-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+/* ==================== 回放对比视图 ==================== */
+.comparison-view {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+}
+
+.comparison-chart {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+}
+
+.comparison-stats {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+}
+
+.comparison-stats h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+}
+
+.stat-row:last-child {
+    border-bottom: none;
+}
