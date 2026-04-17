@@ -107,29 +107,96 @@ window.uapAPI = {
 
 // ==================== 初始化 ====================
 
-/** PyWebView 在 DOMContentLoaded 时可能尚未注入 window.pywebview，需等待 pywebviewready 或轮询 api。 */
-async function waitForPywebviewApi(maxMs = 12000) {
-    if (window.pywebview && window.pywebview.api) return true;
-    await new Promise((resolve) => {
-        let settled = false;
-        const finish = () => {
-            if (settled) return;
-            settled = true;
+/**
+ * pywebview 会先挂上 `window.pywebview.api = {}`，再在子线程里执行 `_createApi` 绑定方法（见 pywebview util.inject_pywebview）。
+ * 仅判断 `if (api)` 会在空对象阶段为真，此时调用 `list_projects` 会得到 “is not a function”。
+ */
+function isPywebviewApiCallable() {
+    const api = window.pywebview?.api;
+    return !!(
+        api &&
+        typeof api.list_projects === 'function' &&
+        typeof api.get_config === 'function'
+    );
+}
+
+/**
+ * PyWebView 在 DOMContentLoaded 时可能尚未注入 window.pywebview。
+ * 原先在 maxMs 时用 finish() 直接清掉轮询，若 api 在超时后才就绪会永久错过，表现为重启后列表/设置为空。
+ */
+async function waitForPywebviewApi(maxMs = 60000) {
+    if (isPywebviewApiCallable()) return true;
+    const deadline = Date.now() + maxMs;
+    const ready = await new Promise((resolve) => {
+        let done = false;
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
             clearInterval(iv);
             clearTimeout(to);
             window.removeEventListener('pywebviewready', onReady);
-            resolve();
+            resolve(ok);
         };
         const onReady = () => {
-            if (window.pywebview && window.pywebview.api) finish();
+            if (isPywebviewApiCallable()) finish(true);
         };
         window.addEventListener('pywebviewready', onReady);
         const iv = setInterval(() => {
-            if (window.pywebview && window.pywebview.api) finish();
+            if (isPywebviewApiCallable()) finish(true);
+            else if (Date.now() >= deadline) finish(false);
         }, 50);
-        const to = setTimeout(finish, maxMs);
+        const to = setTimeout(() => finish(false), maxMs);
     });
-    return !!(window.pywebview && window.pywebview.api);
+    if (!ready) {
+        console.warn(
+            `[UAP] waitForPywebviewApi: ${maxMs}ms 内未完成 _createApi（list_projects 仍不可用），项目与设置将无法从后端加载`
+        );
+    }
+    return ready;
+}
+
+/**
+ * 若 DOMContentLoaded 时 pywebview.api 尚未注入（调试器/冷启动常见），首轮 load 会空跑。
+ * 在 pywebviewready 与短时轮询上补跑一次，直到成功或超时。
+ */
+function scheduleDeferredProjectAndSettingsLoad() {
+    if (window.__uapDeferredBootstrapScheduled) return;
+    window.__uapDeferredBootstrapScheduled = true;
+
+    let deferredRunning = false;
+    const tryOnce = async () => {
+        if (deferredRunning || window.__uapDataBootstrapDone || !isPywebviewApiCallable()) return;
+        deferredRunning = true;
+        try {
+            console.log('[UAP] deferred: _createApi 已完成，补载项目与设置');
+            await loadProjects();
+            await loadSettings();
+            window.__uapDataBootstrapDone = true;
+            clearInterval(iv);
+            window.removeEventListener('pywebviewready', onPvReady);
+        } catch (e) {
+            console.error('[UAP] deferred loadProjects/loadSettings 失败', e);
+        } finally {
+            deferredRunning = false;
+        }
+    };
+
+    const onPvReady = () => {
+        tryOnce();
+    };
+    window.addEventListener('pywebviewready', onPvReady);
+    const iv = setInterval(() => {
+        tryOnce();
+    }, 400);
+    setTimeout(() => {
+        clearInterval(iv);
+        window.removeEventListener('pywebviewready', onPvReady);
+        if (!window.__uapDataBootstrapDone && isPywebviewApiCallable()) {
+            tryOnce();
+        } else if (!window.__uapDataBootstrapDone) {
+            console.warn('[UAP] deferred: 120s 内 _createApi 仍未完成（list_projects 不可用），请检查 pywebview 与调试启动方式');
+        }
+    }, 120000);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -148,12 +215,16 @@ async function initializeApp() {
     bindKnowledgeEvents();
     bindModalEvents();
     
-    await waitForPywebviewApi();
-    // 加载初始数据（依赖 pywebview.api）
+    const apiReady = await waitForPywebviewApi();
     await loadProjects();
     await loadSettings();
-    
-    console.log('UAP initialized');
+    if (apiReady && isPywebviewApiCallable()) {
+        window.__uapDataBootstrapDone = true;
+        console.log('[UAP] initialized, projects=', state.projects.length);
+    } else {
+        console.warn('[UAP] initialized before _createApi 完成; projects=', state.projects.length);
+        scheduleDeferredProjectAndSettingsLoad();
+    }
 }
 
 // ==================== 导航切换 ====================
@@ -192,19 +263,31 @@ function switchView(viewName) {
 // ==================== 项目管理 ====================
 
 async function loadProjects() {
+    if (!isPywebviewApiCallable()) {
+        console.warn('[UAP] loadProjects: _createApi 尚未完成（api 无 list_projects），跳过加载');
+        showToast('无法加载项目列表：桌面 API 尚未就绪，请稍候或重启应用', 'warning');
+        return;
+    }
+    console.log('[UAP] loadProjects: 请求 list_projects …');
     try {
-        if (window.pywebview) {
-            const result = await window.pywebview.api.list_projects();
-            state.projects = result.items || [];
-            renderProjectGrid();
-            // 同时更新项目选择器
-            updateProjectSelects();
-        }
-    } catch (e) {
-        console.error('Failed to load projects:', e);
-        // 演示数据
-        state.projects = [];
+        const result = await window.pywebview.api.list_projects();
+        const items = Array.isArray(result)
+            ? result
+            : (result && Array.isArray(result.items) ? result.items : []);
+        const total =
+            result && !Array.isArray(result) && result.total != null
+                ? result.total
+                : items.length;
+        state.projects = items;
+        console.log('[UAP] loadProjects: list_projects 成功', { count: items.length, total });
         renderProjectGrid();
+        updateProjectSelects();
+    } catch (e) {
+        const msg = e?.message || String(e);
+        console.error('[UAP] loadProjects: list_projects 失败', e);
+        showToast('加载项目列表失败：' + msg, 'error');
+        renderProjectGrid();
+        updateProjectSelects();
     }
 }
 
@@ -226,8 +309,8 @@ function renderProjectGrid() {
         <div class="project-card" data-id="${project.id}">
             <div class="project-card-header">
                 <h3>${escapeHtml(project.name)}</h3>
-                <span class="project-status ${project.model ? 'has-model' : 'no-model'}">
-                    ${project.model ? '已建模' : '未建模'}
+                <span class="project-status ${project.model || project.has_model ? 'has-model' : 'no-model'}">
+                    ${project.model || project.has_model ? '已建模' : '未建模'}
                 </span>
             </div>
             <p class="project-description">${escapeHtml(project.description || '暂无描述')}</p>
@@ -266,7 +349,7 @@ async function openProject(projectId) {
         return;
     }
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const project = await window.pywebview.api.get_project(projectId);
             if (project) {
                 state.currentProject = project;
@@ -290,7 +373,7 @@ async function deleteProject(projectId) {
     if (!confirm('确定要删除这个项目吗？')) return;
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const result = await window.pywebview.api.delete_project(projectId);
             if (result && result.success) {
                 window.uapAPI.onProjectDeleted(projectId);
@@ -360,7 +443,7 @@ async function createProject() {
     const description = descInput?.value.trim() || '';
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const result = await window.pywebview.api.create_project(name, description);
             if (result && result.ok) {
                 window.uapAPI.onProjectCreated(result);
@@ -453,7 +536,7 @@ async function loadSkillsList() {
     if (!container) return;
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const skills = await window.pywebview.api.get_atomic_skills();
             if (skills && skills.length > 0) {
                 container.innerHTML = skills.map(skill => `
@@ -506,7 +589,7 @@ async function loadProjectFiles() {
     }
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const result = await window.pywebview.api.get_project_folder(state.currentProject.id);
             if (result && result.success && result.folder_path) {
                 // 获取文件夹内容
@@ -559,7 +642,7 @@ async function loadProjectFiles() {
 // 列出目录内容
 async function listDirectory(folderPath) {
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const result = await window.pywebview.api.list_directory(folderPath);
             return result.files || [];
         }
@@ -612,7 +695,7 @@ async function openProjectInExplorer() {
     }
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const result = await window.pywebview.api.get_project_folder(state.currentProject.id);
             if (result && result.success) {
                 await window.pywebview.api.open_folder(result.folder_path);
@@ -706,7 +789,7 @@ window.updateDSTStatus = updateDSTStatus;
 async function refreshModelPreview() {
     if (!state.currentProject || !state.currentProject.model) {
         // 尝试从API获取模型
-        if (state.currentProject && window.pywebview) {
+        if (state.currentProject && isPywebviewApiCallable()) {
             try {
                 const project = await window.pywebview.api.get_project(state.currentProject.id);
                 if (project && project.model) {
@@ -800,7 +883,7 @@ async function refreshKbStatus() {
         el.innerHTML = '<p class="placeholder">请先选择项目</p>';
         return;
     }
-    if (!window.pywebview?.api) return;
+    if (!isPywebviewApiCallable()) return;
     try {
         const r = await window.pywebview.api.knowledge_base_status(pid);
         if (!r.ok) {
@@ -825,7 +908,7 @@ async function kbPickAndImport() {
         showToast('请先选择项目', 'warning');
         return;
     }
-    if (!window.pywebview?.api) return;
+    if (!isPywebviewApiCallable()) return;
     try {
         const pick = await window.pywebview.api.knowledge_base_pick_file();
         if (pick.cancelled) return;
@@ -860,7 +943,7 @@ async function kbRunSearch() {
         showToast('请输入查询', 'warning');
         return;
     }
-    if (!window.pywebview?.api) return;
+    if (!isPywebviewApiCallable()) return;
     try {
         const r = await window.pywebview.api.knowledge_base_search(pid, q, 5);
         if (!r.ok) {
@@ -918,7 +1001,7 @@ async function sendModelingMessage() {
     });
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             const modeSelect = document.getElementById('modelingModeSelect');
             const mode = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
             const response = await window.pywebview.api.modeling_chat(
@@ -1072,7 +1155,7 @@ async function updatePredictionConfig() {
     if (!state.currentProject || !frequency) return;
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             await window.pywebview.api.update_prediction_config(
                 state.currentProject.id,
                 parseInt(frequency),
@@ -1097,7 +1180,7 @@ async function startPrediction() {
     }
     
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             await window.pywebview.api.start_prediction(state.currentProject.id);
             showToast('预测任务已启动', 'success');
             updateTaskStatus({ running: true, next_run: '即将开始' });
@@ -1113,7 +1196,7 @@ async function startPrediction() {
 
 async function stopPrediction() {
     try {
-        if (window.pywebview) {
+        if (isPywebviewApiCallable()) {
             await window.pywebview.api.stop_prediction(state.currentProject?.id);
             showToast('预测任务已停止', 'info');
         }
@@ -1206,33 +1289,45 @@ function updateLlmPresetHint() {
 }
 
 async function loadSettings() {
+    if (!isPywebviewApiCallable()) {
+        console.warn('[UAP] loadSettings: _createApi 尚未完成，保留默认表单状态');
+        showToast('无法读取系统设置：桌面 API 尚未就绪', 'warning');
+        return;
+    }
+    console.log('[UAP] loadSettings: 请求 get_config …');
     try {
-        if (window.pywebview) {
-            const config = await window.pywebview.api.get_config();
-            if (config) {
-                // 提取LLM配置
-                const llm = config.llm || {};
-                const predDefaults = config.prediction_defaults || {};
-                const emb = config.embedding || {};
-                const storage = config.storage || {};
-                state.settings = {
-                    llmProvider: llm.provider || 'ollama',
-                    llmModel: llm.model || 'llama3.2',
-                    llmBaseUrl: llm.base_url || 'http://localhost:11434',
-                    llmApiKeySet: !!llm.api_key_set,
-                    llmPresets: config.llm_presets || {},
-                    defaultFrequency: predDefaults.frequency_sec || 3600,
-                    defaultHorizon: predDefaults.horizon_sec || 259200,
-                    embedModel: emb.model || 'qwen3-embedding:8b',
-                    embedBaseUrl: emb.base_url || '',
-                    embedDimension: emb.dimension != null ? emb.dimension : 4096,
-                    milvusLitePath: storage.milvus_lite_path || ''
-                };
-            }
-            renderSettings();
+        const config = await window.pywebview.api.get_config();
+        if (config) {
+            const llm = config.llm || {};
+            const predDefaults = config.prediction_defaults || {};
+            const emb = config.embedding || {};
+            const storage = config.storage || {};
+            state.settings = {
+                llmProvider: llm.provider || 'ollama',
+                llmModel: llm.model || 'llama3.2',
+                llmBaseUrl: llm.base_url || 'http://localhost:11434',
+                llmApiKeySet: !!llm.api_key_set,
+                llmPresets: config.llm_presets || {},
+                defaultFrequency: predDefaults.frequency_sec || 3600,
+                defaultHorizon: predDefaults.horizon_sec || 259200,
+                embedModel: emb.model || 'qwen3-embedding:8b',
+                embedBaseUrl: emb.base_url || '',
+                embedDimension: emb.dimension != null ? emb.dimension : 4096,
+                milvusLitePath: storage.milvus_lite_path || ''
+            };
+            console.log('[UAP] loadSettings: get_config 成功', {
+                config_path: config.config_path,
+                provider: state.settings.llmProvider,
+                model: state.settings.llmModel
+            });
+        } else {
+            console.warn('[UAP] loadSettings: get_config 返回空，未更新 state.settings');
         }
+        renderSettings();
     } catch (e) {
-        console.error('加载设置失败:', e);
+        const msg = e?.message || String(e);
+        console.error('[UAP] loadSettings: get_config 失败', e);
+        showToast('读取系统设置失败：' + msg, 'error');
     }
 }
 
@@ -1293,9 +1388,18 @@ async function saveSettings() {
     };
 
     try {
-        if (window.pywebview) {
-            await window.pywebview.api.update_config(settings);
+        if (!isPywebviewApiCallable()) {
+            console.warn('[UAP] saveSettings: _createApi 尚未完成');
+            showToast('无法保存设置：桌面 API 尚未就绪', 'warning');
+            return;
         }
+        const logPayload = {
+            ...settings,
+            llm: { ...settings.llm, api_key: apiKey ? '(已填写，已省略)' : undefined }
+        };
+        console.log('[UAP] saveSettings: 调用 update_config …', logPayload);
+        await window.pywebview.api.update_config(settings);
+        console.log('[UAP] saveSettings: update_config 成功');
         state.settings = {
             llmProvider: settings.llm.provider,
             llmModel: settings.llm.model,
@@ -1312,7 +1416,7 @@ async function saveSettings() {
         showToast('设置已保存', 'success');
         await loadSettings();
     } catch (e) {
-        console.error('保存设置失败:', e);
+        console.error('[UAP] saveSettings: update_config 失败', e);
         showToast('保存设置失败: ' + (e.message || e), 'error');
     }
 }

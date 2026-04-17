@@ -885,13 +885,20 @@ class UAPApp {
     // ==================== 项目管理 ====================
 
     async loadProjects() {
+        console.log('[UAP] loadProjects: 请求 list_projects …');
         try {
             const result = await pywebview.api.list_projects();
-            this.projects = result.items || [];
+            const items = result.items || [];
+            const total = result.total != null ? result.total : items.length;
+            this.projects = items;
+            console.log('[UAP] loadProjects: list_projects 成功', { count: items.length, total });
             this.renderProjects();
             this.updateProjectSelectors();
         } catch (e) {
-            console.error('Failed to load projects:', e);
+            console.error('[UAP] loadProjects: list_projects 失败', e);
+            alert('加载项目列表失败：' + (e.message || e));
+            this.renderProjects();
+            this.updateProjectSelectors();
         }
     }
 
@@ -1278,8 +1285,18 @@ window.addEventListener('DOMContentLoaded', () => {
             f.write(js_content)
 
     def _on_start(self):
-        """窗口启动后的回调"""
+        """窗口启动后的回调（pywebview GUI 线程；此时可安全读 project_store）。"""
         print("UAP Application started")
+        try:
+            root = self.api.project_store.root
+            n = len(self.api.project_store.list_projects())
+            _LOG.info(
+                "[main] WebView GUI thread started: project_store root=%s project_count=%s",
+                root,
+                n,
+            )
+        except Exception as e:
+            _LOG.exception("[main] Failed to read project_store at WebView start: %s", e)
 
     def stop(self):
         """停止应用"""

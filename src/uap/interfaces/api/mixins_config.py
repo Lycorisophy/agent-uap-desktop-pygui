@@ -2,29 +2,62 @@
 
 from __future__ import annotations
 
+import copy
+from typing import Any
+
 from uap.config import local_override_config_path, llm_provider_presets
 
 from uap.interfaces.api._log import _LOG
 
 
+def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
+    """日志用：避免把 llm.api_key 明文写入日志。"""
+    if not isinstance(updates, dict):
+        return {}
+    out = copy.deepcopy(updates)
+    llm = out.get("llm")
+    if isinstance(llm, dict) and llm.get("api_key"):
+        raw = llm["api_key"]
+        llm["api_key"] = f"<redacted len={len(str(raw))}>"
+    return out
+
+
 class ConfigApiMixin:
     def get_config(self) -> dict:
         """Get current config（与前端字段 prediction_defaults 对齐）。"""
+        override_path = local_override_config_path()
         pred = self.config.prediction
+        emb = self.config.embedding
+        _LOG.info(
+            "[API] get_config: local_override_exists=%s path=%s llm=%s/%s embed=%s",
+            override_path.is_file(),
+            override_path,
+            self.config.llm.provider,
+            self.config.llm.model,
+            emb.model,
+        )
         llm_dump = self.config.llm.model_dump()
         llm_dump["api_key"] = ""
         llm_dump["api_key_set"] = bool(self.config.llm.api_key)
-        return {
+        payload = {
             "prediction_defaults": {
                 "frequency_sec": pred.default_frequency_sec,
                 "horizon_sec": pred.default_horizon_sec,
             },
             "llm": llm_dump,
             "llm_presets": llm_provider_presets(),
-            "embedding": self.config.embedding.model_dump(),
+            "embedding": emb.model_dump(),
             "storage": self.config.storage.model_dump(),
-            "config_path": str(local_override_config_path()),
+            "config_path": str(override_path),
         }
+        _LOG.info(
+            "[API] get_config: return prediction freq=%s horizon=%s api_key_set=%s milvus_lite_path=%s",
+            pred.default_frequency_sec,
+            pred.default_horizon_sec,
+            llm_dump.get("api_key_set"),
+            (self.config.storage.milvus_lite_path or "")[:80] or "(empty)",
+        )
+        return payload
 
     def update_config(self, config_updates: dict) -> dict:
         """
@@ -33,7 +66,10 @@ class ConfigApiMixin:
         与界面字段对齐：必须写入 ``llm.provider`` 等，否则重启后会回落到默认提供商。
         """
         try:
-            _LOG.info("[API] update_config called: %s", config_updates)
+            _LOG.info(
+                "[API] update_config called (redacted): %s",
+                _redact_config_updates_for_log(config_updates),
+            )
 
             if "llm" in config_updates:
                 from uap.config import LLMConfig
@@ -93,6 +129,15 @@ class ConfigApiMixin:
 
             import yaml
 
+            _LOG.info(
+                "[API] update_config: writing yaml path=%s llm=%s/%s embed=%s pred_freq=%s pred_horizon=%s",
+                config_path,
+                self.config.llm.provider,
+                self.config.llm.model,
+                self.config.embedding.model,
+                self.config.prediction.default_frequency_sec,
+                self.config.prediction.default_horizon_sec,
+            )
             with open(config_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(
                     merged,

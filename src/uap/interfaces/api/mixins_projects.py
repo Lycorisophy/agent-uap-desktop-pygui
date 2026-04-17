@@ -27,6 +27,12 @@ class ProjectsApiMixin:
         projects = self.project_store.list_projects()
         total = len(projects)
         items = projects[offset : offset + limit]
+        _LOG.info(
+            "[API] list_projects: root=%s total=%s returning=%s",
+            self.project_store.root,
+            total,
+            len(items),
+        )
         return {
             "items": [p.to_summary() for p in items],
             "total": total,
