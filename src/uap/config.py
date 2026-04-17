@@ -182,7 +182,7 @@ class MemoryConfig(BaseModel):
 
     - ``vector_enabled``：语义检索 / 长期事实召回（见 ``uap.vector``）。
     - ``event_index_enabled``：时序事件、预测任务等索引（可与 JSONL/SQLite 配合）。
-    - ``graph_enabled``：实体关系图存储（当前多为扩展预留，非桌面默认路径）。
+    - ``graph_enabled``：为真时随 ``model.json`` 同步写入项目目录 ``entity_graph.json``（本地 JSON 投影，无外部图库）。
 
     实现注意：各子模块应在启动时读取本块，避免在业务代码里硬编码开关。
     """

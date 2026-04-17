@@ -57,6 +57,7 @@ class ProjectStore:
     ACTIVE_CONVERSATION_FILE = "active.json"
     HISTORY_DIR = "history"
     DST_AGGREGATE_FILE = "dst_aggregate.json"
+    ENTITY_GRAPH_FILE = "entity_graph.json"
     
     def __init__(self, root: Path | str, uap_cfg: Optional["UapConfig"] = None) -> None:
         self._root = Path(root) if isinstance(root, str) else root
@@ -204,6 +205,24 @@ class ProjectStore:
     def load_dst_aggregate(self, project_id: str) -> Optional[dict[str, Any]]:
         """读取 ``dst_aggregate.json``；不存在或损坏时返回 ``None``。"""
         p = self._project_dir(project_id) / self.DST_AGGREGATE_FILE
+        if not p.is_file():
+            return None
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    def save_entity_graph(self, project_id: str, payload: dict[str, Any]) -> None:
+        """持久化 ``SystemModel`` 投影的实体关系图（与 ``model.json`` 同目录）。"""
+        d = self._ensure_project_dir(project_id)
+        (d / self.ENTITY_GRAPH_FILE).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_entity_graph(self, project_id: str) -> Optional[dict[str, Any]]:
+        """读取 ``entity_graph.json``；不存在或损坏时返回 ``None``。"""
+        p = self._project_dir(project_id) / self.ENTITY_GRAPH_FILE
         if not p.is_file():
             return None
         try:

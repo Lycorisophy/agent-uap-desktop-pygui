@@ -20,7 +20,7 @@
 **推荐回归命令（CI / 本地）：**
 
 ```bash
-pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py tests/test_atomic_implemented_registry.py -q
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py tests/test_atomic_implemented_registry.py tests/test_entity_graph.py -q
 ```
 
 ---
@@ -67,7 +67,7 @@ pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_
 |------|------|------|
 | **B.1** | 会话轨迹 → 技能固化 | **已实现（可选）**：`agent.modeling_skill_solidification_enabled` 为 true 且 `business_success` 时，`SkillGenerator`→`SkillStore`；会话 `project_id` 必须与当前项目一致。 |
 | **B.2** | DST 跨会话按 `project_id` 聚合 | **已实现**：`DstManager._merge_dst_into_project_aggregate`；`ProjectStore.dst_aggregate.json`；`_modeling_context_dict` 注入 `project_dst_aggregate_hint`。 |
-| **B.3** | `graph_enabled` 实体关系图存储 | **仍为预留**：`memory.graph_enabled` 与 `uap.example.yaml` 已注明非桌面默认路径。 |
+| **B.3** | `graph_enabled` 实体关系图存储 | **已实现（轻量）**：`memory.graph_enabled` 为真时 `ProjectStore.entity_graph.json`；`uap.project.entity_graph.build_entity_graph_payload`；建模上下文 `entity_graph_hint`。 |
 | **B.4** | 技能复杂前置条件 | **已实现**：`SkillManager._check_preconditions` 支持 `ctx:` / `context:` / 点路径；保留含「需要」的兼容分支。 |
 
 ---
@@ -160,6 +160,8 @@ ReAct/Plan 建模路径仅注册带执行器的子集（见 `uap.skill.atomic_im
 | [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) | ReAct / Plan 人工冒烟与自动化命令 |
 | [MODELING_SECURITY_NOTES.md](MODELING_SECURITY_NOTES.md) | 流式、卡片、日志、工作区自检项 |
 | [MODELING_DOMAIN_DATA.md](MODELING_DOMAIN_DATA.md) | 领域数据目录与 CSV 示例（与 `data_load_csv` 衔接） |
+
+**实体图文件**：`projects_root/{project_id}/entity_graph.json`（与 `model.json` 同目录）。由 `SystemModel` 投影，不连接外部图数据库；关闭 `memory.graph_enabled` 时不写入。
 
 ---
 

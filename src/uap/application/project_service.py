@@ -251,7 +251,7 @@ class ProjectService:
             project = self._store.get_project(project_id)
             project.system_model = model
             project = self._store.update_project(project)
-            self._store.save_model(project_id, model)
+            self._save_system_model_file(project_id, model)
             _LOG.info("保存模型: project=%s, model_id=%s", project_id, model.id)
             return {"ok": True, "model_id": model.id}
         except FileNotFoundError:
@@ -327,7 +327,7 @@ class ProjectService:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
-            self._store.save_model(project_id, model)
+            self._save_system_model_file(project_id, model)
             
             _LOG.info(
                 "模型提取成功: project=%s, variables=%d, relations=%d, confidence=%.2f",
@@ -405,7 +405,7 @@ class ProjectService:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
-            self._store.save_model(project_id, model)
+            self._save_system_model_file(project_id, model)
             
             _LOG.info(
                 "文档模型提取成功: project=%s, variables=%d, relations=%d",
@@ -572,6 +572,27 @@ class ProjectService:
                     f"（跨会话 DST 摘要：阶段={agg.get('current_stage')}，"
                     f"变量键={vpart}，关系键={rpart}）"
                 )
+        if getattr(self._cfg.memory, "graph_enabled", True):
+            try:
+                eg = self._store.load_entity_graph(project_id)
+            except OSError:
+                eg = None
+            if isinstance(eg, dict) and (eg.get("nodes") or eg.get("edges")):
+                nn = len(eg.get("nodes") or [])
+                ne = len(eg.get("edges") or [])
+                rels = [
+                    str(e.get("relation_name") or "")
+                    for e in (eg.get("edges") or [])[:12]
+                ]
+                rels = [x for x in rels if x]
+                tail = "，".join(rels[:6])
+                if len(rels) > 6:
+                    tail += "…"
+                out["entity_graph_hint"] = (
+                    f"（实体关系图摘要：节点={nn}，有向边={ne}"
+                    + (f"，关系名示例：{tail}" if tail else "")
+                    + "）"
+                )
         from pathlib import Path as _Path
 
         _pd = _Path(project.folder_path or project.workspace or "")
@@ -587,6 +608,25 @@ class ProjectService:
         if _pd.is_dir():
             out["project_workspace"] = str(_pd.resolve())
         return out
+
+    def _sync_entity_graph_if_enabled(self, project_id: str, model: Optional[SystemModel]) -> None:
+        """``memory.graph_enabled`` 为真时，将 ``SystemModel`` 投影为 ``entity_graph.json``。"""
+        if not getattr(self._cfg.memory, "graph_enabled", True):
+            return
+        if not model:
+            return
+        try:
+            from uap.project.entity_graph import build_entity_graph_payload
+
+            payload = build_entity_graph_payload(project_id, model)
+            self._store.save_entity_graph(project_id, payload)
+        except OSError as e:
+            _LOG.warning("[EntityGraph] save failed project=%s: %s", project_id, e)
+
+    def _save_system_model_file(self, project_id: str, model: SystemModel) -> None:
+        """写入 ``model.json`` 并按配置同步实体图。"""
+        self._store.save_model(project_id, model)
+        self._sync_entity_graph_if_enabled(project_id, model)
 
     def _decide_mode_by_task(self, task: str, context: dict, chat_model) -> str:
         """返回 ``react`` 或 ``plan``（Auto 模式用）。"""
@@ -744,7 +784,7 @@ class ProjectService:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
-            self._store.save_model(project_id, model)
+            self._save_system_model_file(project_id, model)
 
         substantive = self._modeling_snapshot_substantive(model)
         out = {
@@ -845,7 +885,7 @@ class ProjectService:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
-            self._store.save_model(project_id, model)
+            self._save_system_model_file(project_id, model)
 
         plan_dump = [p.model_dump() for p in result.plan]
         react_shaped = [self._plan_step_to_react_step_dict(p) for p in result.plan]

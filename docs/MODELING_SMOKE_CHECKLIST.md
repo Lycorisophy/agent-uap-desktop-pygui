@@ -64,7 +64,7 @@
 ## 自动化回归（与阶段 0.2 一致）
 
 ```bash
-pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py tests/test_atomic_implemented_registry.py -q
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py tests/test_atomic_implemented_registry.py tests/test_entity_graph.py -q
 ```
 
 ---

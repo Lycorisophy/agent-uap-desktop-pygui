@@ -94,7 +94,7 @@ memory:
   vector_enabled: true
   # 事件存储
   event_index_enabled: true
-  # 关系图谱（图记忆管线扩展预留；桌面默认建模路径未依赖此项）
+  # 为 true 时：保存系统模型后同步写入项目目录 ``entity_graph.json``（由 SystemModel 投影，无 Neo4j）
   graph_enabled: true
 
 # 智能体配置
