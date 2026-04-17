@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
 
@@ -11,6 +13,7 @@ from uap.application.modeling_intent_classifier import (
     build_modeling_task_with_prior_dialogue,
     run_modeling_intent_scene_if_enabled,
 )
+from uap.infrastructure.modeling_stream_hub import run_in_thread
 from uap.interfaces.api._log import _LOG
 
 
@@ -139,8 +142,143 @@ class ProjectsApiMixin:
             _LOG.exception("[API] restore_modeling_conversation: %s", e)
             return {"ok": False, "error": str(e), "messages": []}
 
+    def _modeling_chat_core_body(
+        self,
+        project_id: str,
+        user_message_raw: str,
+        mode: str | None,
+        on_llm_token: Callable[[str], None] | None = None,
+    ) -> dict:
+        """在已将本轮用户消息写入 store 后执行意图分类与 ReAct/Plan，并持久化助手回复。"""
+        messages = self.project_store.load_messages(project_id)
+        intent_scene = run_modeling_intent_scene_if_enabled(
+            self.config, messages, user_message_raw
+        )
+
+        effective_mode = mode
+        if effective_mode is None or not str(effective_mode).strip():
+            effective_mode = self.config.agent.modeling_agent_mode or "react"
+
+        prior = messages[:-1] if len(messages) > 1 else []
+        task_for_agent = build_modeling_task_with_prior_dialogue(prior, user_message_raw)
+
+        result = self.project_service.react_modeling(
+            project_id=project_id,
+            user_message=task_for_agent,
+            card_manager=self.card_manager,
+            web_search_func=self._get_web_search_func(),
+            mode=str(effective_mode).strip().lower(),
+            intent_scene=intent_scene if intent_scene else None,
+            original_user_message=user_message_raw,
+            on_llm_token=on_llm_token,
+        )
+        _LOG.info(
+            "[API] modeling result: ok=%s, success=%s, mode_used=%s",
+            result.get("ok"),
+            result.get("success"),
+            result.get("mode_used"),
+        )
+
+        if result.get("ok"):
+            response_message = result.get("message", "建模完成")
+
+            steps_info = ""
+            if result.get("steps"):
+                mu = (result.get("mode_used") or "").strip().lower()
+                mr = (result.get("mode_requested") or "").strip().lower()
+                if mr == "auto" and mu:
+                    label = f"Auto→{mu}"
+                elif mu == "plan":
+                    label = "Plan"
+                else:
+                    label = "ReAct"
+                steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
+                for step in result["steps"][-5:]:
+                    th = (step.get("thought") or "").strip()
+                    if th:
+                        tcap = 120
+                        steps_info += f"\n- 思考: {th[:tcap]}{'…' if len(th) > tcap else ''}"
+                    act = (step.get("action") or "").strip()
+                    if act and act != "FINAL_ANSWER":
+                        steps_info += f"\n  行动: {act}"
+                    if act == "ask_user":
+                        inp = step.get("action_input") or {}
+                        if isinstance(inp, dict):
+                            q = (inp.get("question") or "").strip()
+                            if q:
+                                qcap = 280
+                                qq = q if len(q) <= qcap else q[: qcap - 1] + "…"
+                                steps_info += f"\n  问题: {qq}"
+                            opts = inp.get("options")
+                            if isinstance(opts, list) and opts:
+                                steps_info += f"\n  （共 {len(opts)} 个选项）"
+                    desc = (step.get("description") or "").strip()
+                    if desc:
+                        steps_info += f"\n- 步骤说明: {desc[:100]}{'…' if len(desc) > 100 else ''}"
+                    obs = (step.get("observation") or "").strip()
+                    if obs and (act == "plan_step" or (th.startswith("计划步骤:"))):
+                        ocap = 140
+                        oo = obs if len(obs) <= ocap else obs[: ocap - 1] + "…"
+                        steps_info += f"\n  执行结果摘要: {oo}"
+                    if step.get("tool_name"):
+                        steps_info += f"\n  工具: {step['tool_name']}"
+
+            dst_info = ""
+            dst_state = result.get("dst_state", {})
+            if dst_state:
+                progress = dst_state.get("progress", 0)
+                stage = dst_state.get("current_stage", "unknown")
+                vars_count = len(dst_state.get("variables", []))
+                rels_count = len(dst_state.get("relations", []))
+                dst_info = (
+                    f"\n[进度: {progress*100:.0f}%] 阶段={stage}, "
+                    f"变量={vars_count}, 关系={rels_count}"
+                )
+
+            full_message = response_message + steps_info + dst_info
+
+            self.project_store.save_messages(
+                project_id,
+                self.project_store.load_messages(project_id)
+                + [
+                    {
+                        "role": "assistant",
+                        "content": full_message,
+                        "created_at": datetime.now().isoformat(),
+                    }
+                ],
+            )
+
+            return {
+                "ok": True,
+                "message": full_message,
+                "model": result.get("model"),
+                "session_id": result.get("session_id"),
+                "steps": result.get("steps", []),
+                "dst_state": dst_state,
+                "pending_card": result.get("pending_card"),
+                "success": result.get("success", False),
+                "pending_user_input": result.get("pending_user_input", False),
+                "tool_calls": result.get("tool_calls", 0),
+                "mode_used": result.get("mode_used"),
+                "mode_requested": result.get("mode_requested"),
+                "plan": result.get("plan"),
+                "replan_count": result.get("replan_count", 0),
+            }
+        error_msg = result.get("error", "建模失败")
+        _LOG.warning("[API] modeling_chat failed: %s", error_msg)
+        return {"ok": False, "message": error_msg}
+
     def modeling_chat(self, project_id: str, message: str, mode: str | None = None) -> dict:
-        """建模对话；``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。"""
+        """
+        建模对话（同步一次返回）。
+
+        成功时返回字段含 ``message``、``steps``、``dst_state``、``success``、
+        ``pending_user_input``（本轮是否在 ``ask_user`` 后等待用户下一条消息）、
+        ``mode_used`` 等。渐进式输出请用 ``start_modeling_chat_stream`` /
+        ``poll_modeling_chat_stream``。
+        ``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。
+        """
         _LOG.info(
             "[API] modeling_chat called: project_id=%s, message_len=%d, mode=%s",
             project_id,
@@ -160,124 +298,67 @@ class ProjectsApiMixin:
             )
             self.project_store.save_messages(project_id, messages)
 
-            intent_scene = run_modeling_intent_scene_if_enabled(
-                self.config, messages, message
-            )
-
-            effective_mode = mode
-            if effective_mode is None or not str(effective_mode).strip():
-                effective_mode = self.config.agent.modeling_agent_mode or "react"
-
-            prior = messages[:-1] if len(messages) > 1 else []
-            task_for_agent = build_modeling_task_with_prior_dialogue(prior, message)
-
-            result = self.project_service.react_modeling(
-                project_id=project_id,
-                user_message=task_for_agent,
-                card_manager=self.card_manager,
-                web_search_func=self._get_web_search_func(),
-                mode=str(effective_mode).strip().lower(),
-                intent_scene=intent_scene if intent_scene else None,
-                original_user_message=message,
-            )
-            _LOG.info(
-                "[API] modeling result: ok=%s, success=%s, mode_used=%s",
-                result.get("ok"),
-                result.get("success"),
-                result.get("mode_used"),
-            )
-
-            if result.get("ok"):
-                response_message = result.get("message", "建模完成")
-
-                steps_info = ""
-                if result.get("steps"):
-                    mu = (result.get("mode_used") or "").strip().lower()
-                    mr = (result.get("mode_requested") or "").strip().lower()
-                    if mr == "auto" and mu:
-                        label = f"Auto→{mu}"
-                    elif mu == "plan":
-                        label = "Plan"
-                    else:
-                        label = "ReAct"
-                    steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
-                    for step in result["steps"][-5:]:
-                        th = (step.get("thought") or "").strip()
-                        if th:
-                            tcap = 120
-                            steps_info += f"\n- 思考: {th[:tcap]}{'…' if len(th) > tcap else ''}"
-                        act = (step.get("action") or "").strip()
-                        if act and act != "FINAL_ANSWER":
-                            steps_info += f"\n  行动: {act}"
-                        if act == "ask_user":
-                            inp = step.get("action_input") or {}
-                            if isinstance(inp, dict):
-                                q = (inp.get("question") or "").strip()
-                                if q:
-                                    qcap = 280
-                                    qq = q if len(q) <= qcap else q[: qcap - 1] + "…"
-                                    steps_info += f"\n  问题: {qq}"
-                                opts = inp.get("options")
-                                if isinstance(opts, list) and opts:
-                                    steps_info += f"\n  （共 {len(opts)} 个选项）"
-                        desc = (step.get("description") or "").strip()
-                        if desc:
-                            steps_info += f"\n- 步骤说明: {desc[:100]}{'…' if len(desc) > 100 else ''}"
-                        obs = (step.get("observation") or "").strip()
-                        if obs and (act == "plan_step" or (th.startswith("计划步骤:"))):
-                            ocap = 140
-                            oo = obs if len(obs) <= ocap else obs[: ocap - 1] + "…"
-                            steps_info += f"\n  执行结果摘要: {oo}"
-                        if step.get("tool_name"):
-                            steps_info += f"\n  工具: {step['tool_name']}"
-
-                dst_info = ""
-                dst_state = result.get("dst_state", {})
-                if dst_state:
-                    progress = dst_state.get("progress", 0)
-                    stage = dst_state.get("current_stage", "unknown")
-                    vars_count = len(dst_state.get("variables", []))
-                    rels_count = len(dst_state.get("relations", []))
-                    dst_info = (
-                        f"\n[进度: {progress*100:.0f}%] 阶段={stage}, "
-                        f"变量={vars_count}, 关系={rels_count}"
-                    )
-
-                full_message = response_message + steps_info + dst_info
-
-                self.project_store.save_messages(
-                    project_id,
-                    self.project_store.load_messages(project_id)
-                    + [
-                        {
-                            "role": "assistant",
-                            "content": full_message,
-                            "created_at": datetime.now().isoformat(),
-                        }
-                    ],
-                )
-
-                return {
-                    "ok": True,
-                    "message": full_message,
-                    "model": result.get("model"),
-                    "session_id": result.get("session_id"),
-                    "steps": result.get("steps", []),
-                    "dst_state": dst_state,
-                    "pending_card": result.get("pending_card"),
-                    "success": result.get("success", False),
-                    "tool_calls": result.get("tool_calls", 0),
-                    "mode_used": result.get("mode_used"),
-                    "mode_requested": result.get("mode_requested"),
-                    "plan": result.get("plan"),
-                    "replan_count": result.get("replan_count", 0),
-                }
-            error_msg = result.get("error", "建模失败")
-            _LOG.warning("[API] modeling_chat failed: %s", error_msg)
-            return {"ok": False, "message": error_msg}
+            return self._modeling_chat_core_body(project_id, message, mode, None)
         except Exception as e:
             _LOG.exception("[API] modeling_chat exception: %s", str(e))
             return {"ok": False, "message": str(e)}
+
+    def start_modeling_chat_stream(
+        self, project_id: str, message: str, mode: str | None = None
+    ) -> dict:
+        """
+        启动后台建模会话并立即返回 ``stream_id``。
+        前端轮询 ``poll_modeling_chat_stream`` 拉取 LLM token；``done`` 为真时
+        ``result`` 与同步 ``modeling_chat`` 成功返回结构一致（含 ``pending_user_input``）。
+        """
+        _LOG.info(
+            "[API] start_modeling_chat_stream: project_id=%s, message_len=%d, mode=%s",
+            project_id,
+            len(message or ""),
+            mode,
+        )
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "error": "Invalid project ID"}
+        stream_id = str(uuid.uuid4())
+        self._modeling_stream_hub.create(stream_id)
+
+        try:
+            messages = self.project_store.load_messages(project_id)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": message,
+                    "created_at": datetime.now().isoformat(),
+                }
+            )
+            self.project_store.save_messages(project_id, messages)
+        except Exception as e:
+            self._modeling_stream_hub.fail(stream_id, str(e))
+            return {"ok": False, "error": str(e), "stream_id": stream_id}
+
+        hub = self._modeling_stream_hub
+        api = self
+
+        def worker() -> None:
+            try:
+
+                def cb(t: str) -> None:
+                    hub.append_token(stream_id, t)
+
+                out = api._modeling_chat_core_body(project_id, message, mode, cb)
+                hub.finish(stream_id, out)
+            except Exception as ex:
+                _LOG.exception("[API] modeling stream worker: %s", ex)
+                hub.fail(stream_id, str(ex))
+
+        run_in_thread(worker, daemon=True)
+        return {"ok": True, "stream_id": stream_id}
+
+    def poll_modeling_chat_stream(self, stream_id: str) -> dict:
+        """拉取自上次 poll 以来累积的 token；若 ``done``，同时返回 ``result`` 或 ``error``。"""
+        if not stream_id or not str(stream_id).strip():
+            return {"ok": False, "error": "Invalid stream_id", "tokens": [], "done": True}
+        return self._modeling_stream_hub.poll(str(stream_id).strip())
 
     def _get_web_search_func(self):
         """获取Web搜索函数"""

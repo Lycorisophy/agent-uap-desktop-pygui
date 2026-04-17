@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import reduce
+from operator import add
 from typing import Any, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from uap.react.react_agent import ReactAgent, ReactStep
@@ -68,10 +70,24 @@ def _tool_call_to_name_args(tc0: Any) -> tuple[str, dict[str, Any]]:
     return name, action_input
 
 
+def _llm_chunks_to_message(chunks: list[AIMessageChunk]) -> AIMessage:
+    if not chunks:
+        return AIMessage(content="")
+    agg: AIMessageChunk = reduce(add, chunks)
+    tc = list(getattr(agg, "tool_calls", None) or [])
+    raw = getattr(agg, "content", "")
+    if isinstance(raw, str):
+        text = raw
+    else:
+        text = str(raw)
+    return AIMessage(content=text, tool_calls=tc)
+
+
 def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
     """编译 LangGraph；``run()`` 通过 ``invoke`` 驱动。"""
     tools = list(lc_tools or [])
     bound = agent.chat_model.bind_tools(tools) if tools else agent.chat_model
+    max_ask_user = max(1, int(getattr(agent, "max_ask_user_per_turn", 1) or 1))
 
     def decide(state: _ReactState) -> dict[str, Any]:
         if state.get("finished"):
@@ -117,8 +133,36 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         )
         _LOG.debug("[react_graph] decide round=%d step_id=%d", rounds, step_id)
 
+        stream_cb = None
+        extra_ctx = state.get("extra_context") or {}
+        if isinstance(extra_ctx, dict):
+            raw_cb = extra_ctx.get("_on_llm_token")
+            if callable(raw_cb):
+                stream_cb = raw_cb
+
         try:
-            resp = bound.invoke([HumanMessage(content=ctx)])
+            if stream_cb is not None and hasattr(bound, "stream"):
+                stream_chunks: list[AIMessageChunk] = []
+                for piece in bound.stream([HumanMessage(content=ctx)]):
+                    if not isinstance(piece, AIMessageChunk):
+                        piece = AIMessageChunk(content=str(piece))
+                    stream_chunks.append(piece)
+                    delta = ""
+                    c = getattr(piece, "content", None)
+                    if isinstance(c, str):
+                        delta = c
+                    elif isinstance(c, list):
+                        for block in c:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                delta += str(block.get("text") or "")
+                    if delta:
+                        try:
+                            stream_cb(delta)
+                        except Exception:
+                            _LOG.exception("[react_graph] stream callback failed")
+                resp = _llm_chunks_to_message(stream_chunks)
+            else:
+                resp = bound.invoke([HumanMessage(content=ctx)])
         except Exception as e:
             _LOG.exception("[react_graph] LLM invoke failed")
             err_step = ReactStep(
@@ -298,10 +342,32 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
             "pending_text": None,
         }
 
+    def route_after_act(state: _ReactState) -> Any:
+        if state.get("finished"):
+            return END
+        steps = list(state.get("steps") or [])
+        if not steps:
+            return "decide"
+        last = steps[-1]
+        if last.action == "ask_user" and not last.is_error:
+            n_ok = sum(
+                1
+                for s in steps
+                if getattr(s, "action", "") == "ask_user" and not getattr(s, "is_error", False)
+            )
+            if n_ok >= max_ask_user:
+                _LOG.info(
+                    "[react_graph] Stop after ask_user (ok_ask_user=%d, max=%d)",
+                    n_ok,
+                    max_ask_user,
+                )
+                return END
+        return "decide"
+
     g = StateGraph(_ReactState)
     g.add_node("decide", decide)
     g.add_node("act", act)
     g.add_edge(START, "decide")
     g.add_conditional_edges("decide", route_after_decide, {END: END, "act": "act"})
-    g.add_edge("act", "decide")
+    g.add_conditional_edges("act", route_after_act, {END: END, "decide": "decide"})
     return g.compile()

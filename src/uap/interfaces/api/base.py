@@ -14,6 +14,7 @@ from uap.scheduler import TaskScheduler, SchedulerConfig
 from uap.card import CardManager, CardGenerator
 from uap.skill import get_atomic_skills_library
 from uap.infrastructure.knowledge import ProjectKnowledgeService
+from uap.infrastructure.modeling_stream_hub import ModelingStreamHub
 
 
 class UAPApiBase:
@@ -35,6 +36,7 @@ class UAPApiBase:
 
         self.atomic_skills = get_atomic_skills_library()
         self.knowledge_service = ProjectKnowledgeService(self.config)
+        self._modeling_stream_hub = ModelingStreamHub()
 
     def _init_scheduler(self) -> TaskScheduler:
         scheduler_config = SchedulerConfig(
