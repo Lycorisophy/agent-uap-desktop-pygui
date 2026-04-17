@@ -1,7 +1,7 @@
 # 推荐：可编辑安装（单一事实来源见 pyproject.toml）
 #   pip install -e .
 # 可选能力：
-#   pip install -e ".[langchain,vector,legacy-db,dev]"
+#   pip install -e ".[vector,legacy-db,dev]"
 #
 # 若仍使用纯 requirements 文件：
 -r requirements-base.txt

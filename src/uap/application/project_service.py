@@ -15,25 +15,24 @@ ProjectService —— **领域编排层**（介于 Harness ``UAPApi`` 与存储 
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from uap.config import LLMConfig, UapConfig
-from uap.infrastructure.llm import ModelExtractor, create_default_extractor
+from uap.infrastructure.llm import ModelExtractor
 from uap.infrastructure.llm.factory import create_llm_chat_client
+from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
+from uap.infrastructure.persistence.project_store import ProjectStore, user_workspace_dir
 from uap.project.models import (
     ModelSource,
     PredictionConfig,
-    Project,
     ProjectStatus,
     SystemModel,
     Variable,
     Relation,
 )
-from uap.infrastructure.persistence.project_store import ProjectStore, user_workspace_dir
 from uap.react.context_helpers import format_system_model_for_prompt
 
 _LOG = logging.getLogger("uap.project_service")
@@ -579,8 +578,8 @@ class ProjectService:
             # --- 1. DST：会话内「建模阶段 + 槽位」状态机（上下文工程）---
             dst_manager = DstManager()
 
-            # --- 2. LLM 客户端（Ollama 或 OpenAI 兼容远程）---
-            llm_client = create_llm_chat_client(self._cfg.llm)
+            # --- 2. LangChain 聊天模型（Ollama 原生或 OpenAI 兼容远程）---
+            chat_model = create_langchain_chat_model(self._cfg.llm)
 
             # --- 3. 技能注册表 = 原子库 + 动态业务技能（工具系统「白名单」）---
             skills_registry = {}
@@ -621,7 +620,7 @@ class ProjectService:
 
             # --- 4. ReAct 引擎：迭代上限与时间上限在构造参数体现（安全 Harness）---
             react_agent = ReactAgent(
-                llm_client=llm_client,
+                chat_model=chat_model,
                 skills_registry=skills_registry,
                 dst_manager=dst_manager,
                 max_iterations=15,

@@ -45,7 +45,7 @@ def test_model_extractor_parse_minimal_json() -> None:
 
 def test_react_parse_llm_response_basic() -> None:
     agent = ReactAgent(
-        llm_client=MagicMock(),
+        chat_model=MagicMock(),
         skills_registry={},
         dst_manager=MagicMock(),
     )

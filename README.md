@@ -209,7 +209,7 @@ fix(scheduler): 修复任务重复执行问题
 agent-uap-desktop-pygui/
 ├── pyproject.toml            # 包元数据与依赖（推荐 pip install -e .）
 ├── requirements-base.txt   # 核心依赖列表
-├── requirements-optional.txt # 可选依赖（向量/LangChain/中间件等）
+├── requirements-optional.txt # 可选依赖（向量/中间件等；LangChain 已为主依赖）
 ├── resources/web/          # 内置前端（HTML/CSS/JS）
 ├── config/                 # 配置样例
 ├── docs/                   # 文档与设计指南

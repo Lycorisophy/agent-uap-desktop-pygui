@@ -38,7 +38,7 @@ def test_react_prompt_novice_policy_in_asset() -> None:
 
 def test_build_context_uses_existing_model_when_no_system_model() -> None:
     agent = ReactAgent(
-        llm_client=MagicMock(),
+        chat_model=MagicMock(),
         skills_registry={},
         dst_manager=MagicMock(),
     )

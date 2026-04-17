@@ -1,8 +1,5 @@
-# 可选能力：按需安装（亦可用 pip install -e ".[langchain,vector,legacy-db]"）
-# --- LangChain / LangGraph（若代码路径启用）---
-langchain>=0.1.0
-langchain-core>=0.1.0
-langgraph>=0.0.0
+# 可选能力：按需安装（亦可用 pip install -e ".[vector,legacy-db,dev]"）
+# LangChain / LangGraph 已纳入 pyproject 主依赖（ReAct 智能体底层）。
 
 # --- 本地向量嵌入（sentence-transformers / torch）---
 torch>=2.0

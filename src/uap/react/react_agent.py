@@ -23,8 +23,8 @@ UAP ReAct Agent —— 「八大行动模式」中的 ReAct 实现层
 「系统任务 + DST 摘要 + 技能目录 + 轨迹」的单一 user 消息；修改输出格式时需同步
 `_parse_llm_response`。
 
-**上下文工程**：最近 N 步轨迹、DST 摘要、技能列表长度均影响 token；后续可接入
-`UapConfig.context_compression` 做预算与摘要。
+**运行时**：底层编排由 **LangGraph**（``compile_react_graph``）驱动；LangChain
+``BaseChatModel`` 负责推理与 ``bind_tools``。
 
 **Harness**：桌面侧通过 `UAPApi.modeling_chat` → `ProjectService.react_modeling`
 组装 registry 与本 `ReactAgent`；本文件不依赖 PyWebView，便于单测。
@@ -36,23 +36,17 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
-from uap.skill.models import (
-    ActionNode,
-    ActionType,
-    SessionStatus,
-    SkillSession,
-)
+from uap.skill.models import SkillSession
 from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
 from uap.prompts import PromptId, render
 from uap.react.context_helpers import format_system_model_for_prompt
+from uap.react.lc_tools import atomic_skills_to_lc_tools
 
 _LOG = logging.getLogger("uap.react")
 
@@ -106,7 +100,7 @@ class ReactAgent:
 
     def __init__(
         self,
-        llm_client,
+        chat_model: BaseChatModel,
         skills_registry: dict[str, AtomicSkill],
         dst_manager,
         max_iterations: int = 10,
@@ -116,18 +110,22 @@ class ReactAgent:
         初始化 ReAct Agent。
 
         Args:
-            llm_client: LLM 客户端（须实现 ``chat(messages) -> ...``，见 OllamaClient）
+            chat_model: LangChain 聊天模型（``bind_tools`` + ``invoke``）
             skills_registry: **工具注册表**：skill_id → AtomicSkill，对应提示词里的技能列表
             dst_manager: **对话状态 / 上下文工程**侧：建模阶段与槽位填充进度
             max_iterations: 单会话最大推理-行动轮数（防止死循环与费用爆炸）
             max_time_seconds:  wall-clock 超时，与迭代上限二选一先触发者为准
         """
-        # --- 运行时依赖（成员说明见类 docstring）---
-        self.llm = llm_client  # 推理后端：承担「提示词 → 结构化行动」
-        self.skills = skills_registry  # 工具层：ReAct 的 Action 落点
-        self.dst = dst_manager  # 状态层：把工具结果折叠为「建模进度」
-        self.max_iterations = max_iterations  # 安全预算：步数
-        self.max_time = max_time_seconds  # 安全预算：时间
+        self.chat_model = chat_model
+        self.skills = skills_registry
+        self.dst = dst_manager
+        self.max_iterations = max_iterations
+        self.max_time = max_time_seconds
+
+        self._lc_tools = atomic_skills_to_lc_tools(skills_registry)
+        from uap.react.react_graph import compile_react_graph
+
+        self._graph = compile_react_graph(self, self._lc_tools)
 
         _LOG.info("[ReActAgent] Initialized with %d skills", len(skills_registry))
 
@@ -149,123 +147,54 @@ class ReactAgent:
 
         _LOG.info("[ReActAgent] Starting session: %s, task: %s", session_id, task[:100])
 
-        # DST：建立会话级「槽位+阶段」状态，供 _format_dst_summary 与前端展示
         dst_session = self.dst.create_session(session_id, task, context)
 
-        steps = []
-        total_tool_calls = 0
-        # 首轮上下文：无历史轨迹，仅任务 + DST + 技能目录
-        current_context = self._build_context(task, context, dst_session)
+        final = self._graph.invoke(
+            {
+                "task": task,
+                "extra_context": context,
+                "session_id": session_id,
+                "dst_session": dst_session,
+                "steps": [],
+                "llm_rounds": 0,
+                "start_time": start_time,
+                "finished": False,
+                "success": False,
+                "error_message": None,
+                "total_tool_calls": 0,
+                "pending_native": None,
+                "pending_text": None,
+                "current_step_id": 0,
+            }
+        )
 
-        for iteration in range(self.max_iterations):
-            step_start = time.perf_counter()
-            # 本轮解析结果（在 except 中也要安全读取）
-            thought = ""
-            action = ""
-            action_input: dict = {}
-
-            # 检查超时
-            elapsed = time.perf_counter() - start_time
-            if elapsed > self.max_time:
-                _LOG.warning("[ReActAgent] Session %s timed out after %.1fs", session_id, elapsed)
-                break
-
-            step_id = iteration + 1
-            _LOG.info("[ReActAgent] Step %d/%d", step_id, self.max_iterations)
-
-            try:
-                # 1. LLM思考决定行动
-                thought_result = self._llm_think(current_context, steps)
-                thought = thought_result.get("thought", "")
-                action = thought_result.get("action", "")
-                action_input = thought_result.get("action_input", {})
-
-                _LOG.debug("[ReActAgent] Step %d: thought=%s, action=%s", step_id, thought[:50], action)
-
-                # 2. 检查是否完成
-                if action == "FINAL_ANSWER" or action == "":
-                    final_output = thought_result.get("final_answer", "")
-                    step = ReactStep(
-                        step_id=step_id,
-                        thought=thought,
-                        action="FINAL_ANSWER",
-                        observation="任务完成",
-                        duration_ms=int((time.perf_counter() - step_start) * 1000)
-                    )
-                    steps.append(step)
-                    break
-
-                # 3. 执行技能
-                obs, is_error, error_msg = self._execute_skill(action, action_input)
-
-                if is_error:
-                    _LOG.warning("[ReActAgent] Skill %s failed: %s", action, error_msg)
-
-                # 4. 记录观察结果
-                step = ReactStep(
-                    step_id=step_id,
-                    thought=thought,
-                    action=action,
-                    action_input=action_input,
-                    observation=obs[:500] if obs else "",
-                    is_error=is_error,
-                    error_message=error_msg,
-                    duration_ms=int((time.perf_counter() - step_start) * 1000)
-                )
-                steps.append(step)
-                total_tool_calls += 1
-
-                # 5. 更新DST状态
-                self.dst.add_action(
-                    session_id,
-                    ActionNode(
-                        step_id=step_id,
-                        type=ActionType.TOOL_CALL if not is_error else ActionType.OBSERVATION,
-                        tool_name=action,
-                        input_params=action_input,
-                        output_summary=obs[:200] if obs else "",
-                        is_error=is_error
-                    )
-                )
-
-                # 6. 更新上下文
-                current_context = self._build_context(task, context, dst_session, steps)
-
-                # 7. 检查是否需要用户确认（通过卡片）
-                if thought_result.get("needs_confirmation"):
-                    _LOG.info("[ReActAgent] Step %d requires user confirmation", step_id)
-                    # 卡片确认逻辑在外部处理
-
-            except Exception as e:
-                # 解析或工具链任意环节失败：写入错误步并结束，避免未定义变量
-                _LOG.exception("[ReActAgent] Step %d exception: %s", step_id, str(e))
-                steps.append(ReactStep(
-                    step_id=step_id,
-                    thought=thought,
-                    action=action or "unknown",
-                    is_error=True,
-                    error_message=str(e),
-                    duration_ms=int((time.perf_counter() - step_start) * 1000)
-                ))
-                break
-
-        # 标记会话完成
+        steps = list(final.get("steps") or [])
+        total_tool_calls = int(final.get("total_tool_calls", 0))
         total_duration = int((time.perf_counter() - start_time) * 1000)
+
+        success = len(steps) > 0 and steps[-1].action == "FINAL_ANSWER"
+
         self.dst.complete_session(session_id, steps[-1].observation if steps else None)
 
         result = ReactResult(
-            success=len(steps) > 0 and steps[-1].action == "FINAL_ANSWER",
+            success=success,
             session_id=session_id,
             steps=steps,
             final_output=steps[-1].observation if steps else None,
+            error_message=final.get("error_message"),
             total_steps=len(steps),
             total_duration_ms=total_duration,
             tool_calls=total_tool_calls,
-            dst_state=self.dst.get_session_state(session_id)
+            dst_state=self.dst.get_session_state(session_id),
         )
 
-        _LOG.info("[ReActAgent] Session %s completed: success=%s, steps=%d, duration=%dms",
-                  session_id, result.success, result.total_steps, result.total_duration_ms)
+        _LOG.info(
+            "[ReActAgent] Session %s completed: success=%s, steps=%d, duration=%dms",
+            session_id,
+            result.success,
+            result.total_steps,
+            result.total_duration_ms,
+        )
 
         return result
 
@@ -274,7 +203,7 @@ class ReactAgent:
         task: str,
         extra_context: dict,
         dst_session: SkillSession,
-        completed_steps: list[ReactStep] = None
+        completed_steps: list[ReactStep] = None,
     ) -> str:
         """
         **上下文工程**：把多源信息压成单条 user 消息（当前 `chat` 接口无独立 system）。
@@ -286,12 +215,10 @@ class ReactAgent:
         """
         completed_steps = completed_steps or []
 
-        # 技能目录：让模型知道可调用的工具 ID 与语义（与提示词末尾格式约束配套）
         skills_desc = self._format_skills_list()
 
-        # 工作记忆：只保留最近 5 步，防止上下文线性膨胀；调参时与 token 预算联动
         trajectory = ""
-        for step in completed_steps[-5:]:  # 最近5步
+        for step in completed_steps[-5:]:
             trajectory += f"\nStep {step.step_id}:\n"
             trajectory += f"思考: {step.thought[:200]}\n"
             trajectory += f"行动: {step.action}\n"
@@ -300,17 +227,14 @@ class ReactAgent:
             if step.is_error:
                 trajectory += f"错误: {step.error_message}\n"
 
-        # DST：把「槽位填充进度」转成自然语言，引导模型按阶段推进（上下文工程）
         dst_summary = self._format_dst_summary(dst_session)
 
-        # system_model：优先摘要字符串；兼容仅传 existing_model(dict) 的调用方
         system_model = (extra_context.get("system_model") or "").strip()
         if not system_model:
             em = extra_context.get("existing_model")
             if em:
                 system_model = format_system_model_for_prompt(em)
 
-        # --- 提示词资产：``react_decision_user.md`` 须与 _parse_llm_response 同步 ---
         return render(
             PromptId.REACT_DECISION_USER,
             task=task,
@@ -339,7 +263,6 @@ class ReactAgent:
             parts.append(f"任务类型: {session.intent}")
         if session.actions:
             parts.append(f"已完成操作: {len(session.actions)}步")
-            # 列出已识别的变量/关系
             for action in session.actions:
                 if action.metadata:
                     if "variables" in action.metadata:
@@ -349,26 +272,6 @@ class ReactAgent:
 
         return "当前状态:\n" + "\n".join(parts) if parts else "DST状态: 活跃"
 
-    def _llm_think(self, context: str, history: list) -> dict:
-        """
-        **推理一步**：将上下文发给 LLM，得到下一「行动」。
-
-        Args:
-            context: 已由 `_build_context` 拼好的大段 user 文本（当前无多轮 messages）
-            history: 预留：多轮对话式 ReAct 时可改为 ``messages`` 列表；现未使用
-
-        Returns:
-            解析后的结构化指令，供 ``_execute_skill`` 消费。
-        """
-        _LOG.debug("[ReActAgent] Calling LLM for decision...")
-
-        # 单条 user：简化 harness；若迁移到 Chat API，建议拆 system/user 并传入 tools
-        messages = [{"role": "user", "content": context}]
-
-        response = self.llm.chat(messages)
-
-        return self._parse_llm_response(response)
-
     def _parse_llm_response(self, response: Any) -> dict:
         """
         **提示词后处理**：把模型自由文本切成 thought/action/input。
@@ -376,15 +279,19 @@ class ReactAgent:
         与 **工具系统**的契约：Action 必须为注册表中的 skill_id，或 FINAL_ANSWER /
         ask_user 等保留字。
         """
-        # Ollama / OpenAI 兼容客户端均返回 dict；须走 message.content，不能用顶层 content
         if hasattr(response, "content") and not isinstance(response, dict):
             content = response.content
         else:
             content = assistant_text_from_chat_response(response)
 
-        result = {"thought": "", "action": "", "action_input": {}, "needs_confirmation": False}
+        result: dict = {
+            "thought": "",
+            "action": "",
+            "action_input": {},
+            "needs_confirmation": False,
+        }
 
-        lines = content.split("\n")
+        lines = str(content or "").split("\n")
         for line in lines:
             line = line.strip()
             if line.startswith("Thought:"):
@@ -392,12 +299,12 @@ class ReactAgent:
             elif line.startswith("Action:"):
                 result["action"] = line.replace("Action:", "").strip()
             elif line.startswith("Action Input:"):
-                # 简单解析JSON
                 json_str = line.replace("Action Input:", "").strip()
                 try:
                     import json
+
                     result["action_input"] = json.loads(json_str)
-                except:
+                except Exception:
                     result["action_input"] = {"raw": json_str}
             elif line.startswith("FINAL_ANSWER:"):
                 result["action"] = "FINAL_ANSWER"
@@ -405,8 +312,11 @@ class ReactAgent:
             elif line.startswith("ask_user") or "确认" in line or "confirm" in line.lower():
                 result["needs_confirmation"] = True
 
-        _LOG.debug("[ReActAgent] Parsed response: action=%s, needs_confirm=%s",
-                   result["action"], result["needs_confirmation"])
+        _LOG.debug(
+            "[ReActAgent] Parsed response: action=%s, needs_confirm=%s",
+            result["action"],
+            result["needs_confirmation"],
+        )
 
         return result
 
@@ -419,26 +329,25 @@ class ReactAgent:
         """
         _LOG.info("[ReActAgent] Executing skill: %s with params: %s", skill_id, params)
 
-        # 从注册表解析可调用对象（工具名与提示词中 Action 一致）
+        if skill_id == "ask_user":
+            q = params.get("question") or params.get("raw") or str(params)
+            return f"（追问用户）{q}", False, None
+
         skill = self.skills.get(skill_id)
         if not skill:
             return f"技能 '{skill_id}' 不存在", True, f"Unknown skill: {skill_id}"
 
-        # 检查是否需要确认
         if skill.metadata.requires_confirmation:
             _LOG.info("[ReActAgent] Skill %s requires confirmation", skill_id)
             return f"技能 '{skill_id}' 需要用户确认后才能执行", False, None
 
         try:
-            # 验证输入
             valid, errors = skill.validate_input(**params)
             if not valid:
                 return f"参数验证失败: {', '.join(errors)}", True, "; ".join(errors)
 
-            # 执行技能
             result = skill.execute(**params)
 
-            # 处理结果
             if isinstance(result, dict):
                 if result.get("error"):
                     return str(result["error"]), True, result["error"]
@@ -446,8 +355,11 @@ class ReactAgent:
             else:
                 obs = str(result)
 
-            _LOG.info("[ReActAgent] Skill %s executed successfully, result_len=%d",
-                      skill_id, len(obs))
+            _LOG.info(
+                "[ReActAgent] Skill %s executed successfully, result_len=%d",
+                skill_id,
+                len(obs),
+            )
 
             return obs, False, None
 
@@ -462,4 +374,8 @@ class ReactAgent:
     def register_skill(self, skill_id: str, skill: AtomicSkill) -> None:
         """注册技能"""
         self.skills[skill_id] = skill
+        self._lc_tools = atomic_skills_to_lc_tools(self.skills)
+        from uap.react.react_graph import compile_react_graph
+
+        self._graph = compile_react_graph(self, self._lc_tools)
         _LOG.info("[ReActAgent] Registered skill: %s", skill_id)

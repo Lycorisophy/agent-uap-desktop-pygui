@@ -13,9 +13,8 @@ OllamaClient —— **推理 Harness**：把「消息列表」送到本地 Ollam
 
 import json
 import logging
-from typing import Optional, Generator, Any
 from dataclasses import dataclass
-from enum import Enum
+from typing import Optional, Generator
 
 import httpx
 

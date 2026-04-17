@@ -38,36 +38,41 @@ from uap.react.card_integration import ReactCardIntegration
 
 
 def create_react_agent(
-    llm_client,
-    skills_registry: dict = None,
-    dst_manager: DstManager = None,
+    chat_model,
+    skills_registry: dict | None = None,
+    dst_manager: DstManager | None = None,
     max_iterations: int = 10,
-    max_time_seconds: float = 120.0
+    max_time_seconds: float = 120.0,
 ) -> ReactAgent:
     """
-    创建ReAct Agent快捷函数
+    创建 ReAct Agent 快捷函数
 
     Args:
-        llm_client: LLM客户端
-        skills_registry: 技能注册表
-        dst_manager: DST管理器
+        chat_model: LangChain ``BaseChatModel``
+        skills_registry: ``skill_id`` → ``AtomicSkill``；默认由原子库元数据构造实例
+        dst_manager: DST 管理器
         max_iterations: 最大迭代次数
         max_time_seconds: 最大执行时间
 
     Returns:
-        ReactAgent实例
+        ReactAgent 实例
     """
-    from uap.skill.atomic_skills import get_atomic_skills_library
+    from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 
-    skills = skills_registry or get_atomic_skills_library()
+    if skills_registry is None:
+        skills = {
+            sid: AtomicSkill(meta) for sid, meta in get_atomic_skills_library().items()
+        }
+    else:
+        skills = skills_registry
     dst = dst_manager or DstManager()
 
     return ReactAgent(
-        llm_client=llm_client,
+        chat_model=chat_model,
         skills_registry=skills,
         dst_manager=dst,
         max_iterations=max_iterations,
-        max_time_seconds=max_time_seconds
+        max_time_seconds=max_time_seconds,
     )
 
 

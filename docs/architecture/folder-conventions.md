@@ -61,7 +61,7 @@ interfaces  →  application  →  domain（模型/规则）
 ## 4. 依赖安装
 
 - **默认**：`pip install -e .`（见 `pyproject.toml` 的 `[project.dependencies]`）。
-- **可选**：`pip install -e ".[langchain,vector,legacy-db,dev]"` 或 `requirements-optional.txt`。
+- **可选**：`pip install -e ".[vector,legacy-db,dev]"` 或 `requirements-optional.txt`（LangChain/LangGraph 已为主依赖）。
 
 ## 5. 与 IDE 分析
 
