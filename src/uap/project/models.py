@@ -236,9 +236,17 @@ class PredictionTask(BaseModel):
     project_id: str = Field(description="所属项目ID")
     
     # 触发器
-    trigger_type: Literal["interval", "daily", "manual", "startup"] = "manual"
+    trigger_type: Literal[
+        "interval", "daily", "manual", "startup", "cron", "one_time"
+    ] = "manual"
     interval_sec: Optional[int] = Field(default=None, ge=60, le=86400)
     daily_time: Optional[str] = Field(default=None, description="HH:MM格式")
+    cron_expression: Optional[str] = Field(default=None, description="Cron 表达式（cron 触发时）")
+    
+    # 任务状态（与 TaskScheduler 中 TaskStatus 取值一致）
+    status: Literal[
+        "pending", "running", "completed", "failed", "paused", "cancelled"
+    ] = "pending"
     
     # 任务状态
     enabled: bool = True
@@ -273,9 +281,9 @@ class PredictionResult(BaseModel):
     # 轨迹数据：时间序列的状态值
     trajectory: list[dict] = Field(default_factory=list, description="预测轨迹点列表")
     
-    # 不确定性量化
-    confidence_lower: list[float] = Field(default_factory=list, description="置信下界")
-    confidence_upper: list[float] = Field(default_factory=list, description="置信上界")
+    # 不确定性量化（每步可为与 trajectory 对齐的 dict[str,float]，或蒙特卡洛路径下的结构）
+    confidence_lower: list[Any] = Field(default_factory=list, description="置信下界序列")
+    confidence_upper: list[Any] = Field(default_factory=list, description="置信上界序列")
     confidence_level: float = Field(default=0.95, description="置信度")
     
     # 关键指标
@@ -310,10 +318,10 @@ class PredictionResult(BaseModel):
             "project_id": self.project_id,
             "created_at": self.created_at,
             "prediction_horizon": self.horizon_achieved,
-            "system_state": self.system_state.value,
+            "system_state": self.system_state,
             "has_anomaly": self.has_anomaly,
             "entropy_value": self.entropy_value,
-            "turbulence_level": self.turbulence_level.value,
+            "turbulence_level": self.turbulence_level,
             "status": self.status,
             "key_metrics_count": len(self.key_metrics),
             "anomaly_count": len(self.anomalies),

@@ -1117,7 +1117,7 @@ class UAPApp {
                 list.innerHTML = result.items.slice(0, 10).map(item => `
                     <div class="result-item">
                         <div class="result-header">
-                            <span>${this.formatDate(item.predicted_at)}</span>
+                            <span>${this.formatDate(item.created_at)}</span>
                             <span class="system-state ${item.system_state}">${item.system_state}</span>
                         </div>
                         <div class="result-details">

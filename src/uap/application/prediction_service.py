@@ -133,7 +133,7 @@ class PredictionService:
             result.system_state = raw_result.system_state
             result.entropy_value = raw_result.entropy_value
             result.turbulence_level = raw_result.turbulence_level
-            result.method_used = raw_result.method
+            result.method_used = raw_result.method_used
             
             # 计算关键指标
             result.key_metrics = self._calculate_metrics(result.trajectory, project)

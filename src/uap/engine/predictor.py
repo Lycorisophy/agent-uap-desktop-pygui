@@ -4,7 +4,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional, Any
 
@@ -365,8 +365,15 @@ class MonteCarloPredictor(Predictor):
         entropy = self._calculate_entropy(trajectory_points)
         turbulence_level, _ = self._assess_turbulence(trajectory_points)
         
+        now = datetime.now(timezone.utc)
         return PredictionResult(
-            method=PredictionMethod.MONTE_CARLO.value,
+            project_id="_engine",
+            task_id="_engine",
+            prediction_time_start=now.isoformat(),
+            prediction_time_end=(
+                now + timedelta(seconds=horizon_sec)
+            ).isoformat(),
+            method_used=PredictionMethod.MONTE_CARLO.value,
             trajectory=points,
             confidence_lower=[lower[i]["values"] for i in range(len(lower))],
             confidence_upper=[upper[i]["values"] for i in range(len(upper))],
@@ -381,7 +388,6 @@ class MonteCarloPredictor(Predictor):
             system_state=system_state,
             entropy_value=entropy,
             turbulence_level=turbulence_level,
-            predicted_at=datetime.now().isoformat()
         )
     
     def _compute_mean_trajectory(self, trajectories: list) -> list:

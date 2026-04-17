@@ -2123,15 +2123,22 @@ function bindPredictionEvents() {
         });
     }
     
-    const startBtn = document.getElementById('startPredictionBtn');
-    if (startBtn) {
-        startBtn.addEventListener('click', startPrediction);
+    const runNowBtn = document.getElementById('runNowBtn');
+    if (runNowBtn) {
+        runNowBtn.addEventListener('click', runPredictionNow);
     }
-    
-    const stopBtn = document.getElementById('stopPredictionBtn');
-    if (stopBtn) {
-        stopBtn.addEventListener('click', stopPrediction);
+
+    const startSchedulerBtn = document.getElementById('startSchedulerBtn');
+    if (startSchedulerBtn) {
+        startSchedulerBtn.addEventListener('click', startPrediction);
     }
+
+    const stopSchedulerBtn = document.getElementById('stopSchedulerBtn');
+    if (stopSchedulerBtn) {
+        stopSchedulerBtn.addEventListener('click', stopPrediction);
+    }
+
+    updateTaskStatus({ running: false });
 }
 
 async function updatePredictionConfig() {
@@ -2201,37 +2208,108 @@ function updateTaskStatus(status) {
             <p>任务状态: <span class="status-running">运行中</span></p>
             <p>下次预测: ${status.next_run || '计算中...'}</p>
         `;
-        document.getElementById('startPredictionBtn')?.style.setProperty('display', 'none');
-        document.getElementById('stopPredictionBtn')?.style.removeProperty('display');
+        document.getElementById('startSchedulerBtn')?.style.setProperty('display', 'none');
+        document.getElementById('stopSchedulerBtn')?.style.removeProperty('display');
     } else {
         statusEl.innerHTML = '<p>任务状态: 已停止</p>';
-        document.getElementById('startPredictionBtn')?.style.removeProperty('display');
-        document.getElementById('stopPredictionBtn')?.style.setProperty('display', 'none');
+        document.getElementById('startSchedulerBtn')?.style.removeProperty('display');
+        document.getElementById('stopSchedulerBtn')?.style.setProperty('display', 'none');
     }
+}
+
+async function runPredictionNow() {
+    if (!state.currentProject) {
+        showToast('请先选择一个项目', 'warning');
+        return;
+    }
+    if (!state.currentProject.model) {
+        showToast('该项目尚未完成建模。请先在建模视图中完成系统模型后再预测。', 'warning');
+        return;
+    }
+    try {
+        if (isPywebviewApiCallable()) {
+            const res = await window.pywebview.api.run_prediction_now(state.currentProject.id);
+            if (res && res.success && res.result) {
+                renderPredictionResults(res.result);
+                showToast('预测完成', 'success');
+            } else {
+                showToast((res && res.error) || '预测失败', 'error');
+            }
+        } else {
+            showToast('演示模式：无法调用后端预测', 'info');
+        }
+    } catch (e) {
+        console.error('立即预测失败:', e);
+        showToast('立即预测失败', 'error');
+    }
+}
+
+function buildPredictionSummaryLine(r) {
+    if (!r) return '';
+    if (r.summary) return r.summary;
+    const parts = [];
+    if (r.method_used) parts.push(`方法: ${r.method_used}`);
+    if (r.status) parts.push(`状态: ${r.status}`);
+    if (r.data_points_used != null) parts.push(`数据点: ${r.data_points_used}`);
+    if (r.execution_time_ms != null) parts.push(`耗时: ${r.execution_time_ms} ms`);
+    if (r.system_state) parts.push(`系统状态: ${r.system_state}`);
+    return parts.length ? parts.join(' · ') : '预测完成';
+}
+
+function formatPredictionDateTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return String(isoString);
+    return date.toLocaleString('zh-CN');
 }
 
 function renderPredictionResults(result) {
     const resultsList = document.getElementById('resultsList');
+    if (typeof window.visManager !== 'undefined' && window.visManager) {
+        if (result && window.visManager.buildPredictionTrajectorySvg) {
+            const svg = window.visManager.buildPredictionTrajectorySvg(result);
+            if (svg) {
+                window.visManager.renderTrajectory(svg);
+            } else {
+                window.visManager.renderEmpty('暂无轨迹数据');
+            }
+        }
+    }
+
     if (!resultsList) return;
-    
+
     if (!result) {
         resultsList.innerHTML = '<p class="placeholder">暂无预测结果</p>';
         return;
     }
-    
+
+    const created = result.created_at || result.prediction_time_start || '';
+    const confPct =
+        result.confidence_level != null && !Number.isNaN(Number(result.confidence_level))
+            ? (Number(result.confidence_level) * 100).toFixed(0)
+            : '—';
+    const anomalyTags = (result.anomalies || []).map((a) => {
+        const label =
+            typeof a === 'string'
+                ? a
+                : [a.description, a.variable, a.severity].filter(Boolean).join(' · ') ||
+                  JSON.stringify(a);
+        return `<span class="anomaly-tag">${escapeHtml(label)}</span>`;
+    });
+
     resultsList.innerHTML = `
         <div class="prediction-result">
             <div class="result-header">
-                <span class="result-time">${formatTime(result.timestamp)}</span>
-                <span class="result-confidence">置信度: ${((result.confidence || 0.9) * 100).toFixed(0)}%</span>
+                <span class="result-time">${escapeHtml(formatPredictionDateTime(created))}</span>
+                <span class="result-confidence">置信水平: ${confPct}%</span>
             </div>
             <div class="result-summary">
-                ${result.summary || '预测完成'}
+                ${escapeHtml(buildPredictionSummaryLine(result))}
             </div>
-            ${result.anomalies?.length ? `
+            ${anomalyTags.length ? `
                 <div class="result-anomalies">
                     <h4>检测到异常</h4>
-                    ${result.anomalies.map(a => `<span class="anomaly-tag">${escapeHtml(a)}</span>`).join('')}
+                    ${anomalyTags.join('')}
                 </div>
             ` : ''}
         </div>

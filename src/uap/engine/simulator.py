@@ -4,7 +4,7 @@
 基于规则的系统模拟器，用于简单的数值预测。
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from uap.engine.predictor import Predictor, PredictionMethod
@@ -106,8 +106,15 @@ class SystemSimulator(Predictor):
         # 评估系统状态
         system_state = self._assess_system_state(trajectory)
         
+        now = datetime.now(timezone.utc)
         return PR(
-            method=PredictionMethod.SIMULATION.value,
+            project_id="_engine",
+            task_id="_engine",
+            prediction_time_start=now.isoformat(),
+            prediction_time_end=(
+                now + timedelta(seconds=horizon_sec)
+            ).isoformat(),
+            method_used=PredictionMethod.SIMULATION.value,
             trajectory=trajectory,
             confidence_lower=confidence_lower,
             confidence_upper=confidence_upper,
@@ -115,7 +122,6 @@ class SystemSimulator(Predictor):
             system_state=system_state,
             entropy_value=self._calculate_entropy(trajectory),
             turbulence_level=self._calculate_turbulence(trajectory),
-            predicted_at=datetime.now().isoformat()
         )
     
     def _step(self, state: dict, dt: float) -> dict:

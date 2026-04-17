@@ -9,7 +9,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Callable
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
 
 from uap.project.models import PredictionTask
@@ -79,11 +79,11 @@ class TaskScheduler:
         task = PredictionTask(
             id=task_id,
             project_id=project_id,
-            trigger_type=TriggerType.INTERVAL,
-            interval_seconds=interval_sec,
-            status=TaskStatus.PENDING,
+            trigger_type="interval",
+            interval_sec=interval_sec,
+            status=TaskStatus.PENDING.value,
             created_at=now.isoformat(),
-            next_run_at=(now + timedelta(seconds=interval_sec)).isoformat()
+            next_run_at=(now + timedelta(seconds=interval_sec)).isoformat(),
         )
 
         with self._lock:
@@ -105,11 +105,11 @@ class TaskScheduler:
         task = PredictionTask(
             id=task_id,
             project_id=project_id,
-            trigger_type=TriggerType.CRON,
+            trigger_type="cron",
             cron_expression=cron_expression,
-            status=TaskStatus.PENDING,
+            status=TaskStatus.PENDING.value,
             created_at=now.isoformat(),
-            next_run_at=self._calc_next_cron_run(cron_expression, now)
+            next_run_at=self._calc_next_cron_run(cron_expression, now),
         )
 
         with self._lock:
@@ -130,10 +130,10 @@ class TaskScheduler:
         task = PredictionTask(
             id=task_id,
             project_id=project_id,
-            trigger_type=TriggerType.ONE_TIME,
-            status=TaskStatus.PENDING,
+            trigger_type="one_time",
+            status=TaskStatus.PENDING.value,
             created_at=datetime.now().isoformat(),
-            next_run_at=run_at.isoformat()
+            next_run_at=run_at.isoformat(),
         )
 
         with self._lock:
@@ -165,8 +165,8 @@ class TaskScheduler:
         """暂停任务"""
         with self._lock:
             task = self._tasks.get(task_id)
-            if task and task.status == TaskStatus.RUNNING:
-                task.status = TaskStatus.PAUSED
+            if task and task.status == TaskStatus.RUNNING.value:
+                task.status = TaskStatus.PAUSED.value
                 self._save_tasks()
                 return True
         return False
@@ -175,8 +175,8 @@ class TaskScheduler:
         """恢复任务"""
         with self._lock:
             task = self._tasks.get(task_id)
-            if task and task.status == TaskStatus.PAUSED:
-                task.status = TaskStatus.PENDING
+            if task and task.status == TaskStatus.PAUSED.value:
+                task.status = TaskStatus.PENDING.value
                 task.next_run_at = datetime.now().isoformat()
                 self._save_tasks()
                 return True
@@ -219,12 +219,12 @@ class TaskScheduler:
             # 统计运行中的任务数
             running_count = sum(
                 1 for t in self._tasks.values()
-                if t.status == TaskStatus.RUNNING
+                if t.status == TaskStatus.RUNNING.value
             )
 
             for task_id, task in self._tasks.items():
                 # 跳过非待执行状态的任务
-                if task.status not in [TaskStatus.PENDING, TaskStatus.RUNNING]:
+                if task.status not in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value):
                     continue
 
                 # 检查是否到期
@@ -254,7 +254,7 @@ class TaskScheduler:
         """执行任务"""
         print(f"Executing prediction task: {task.id} for project: {task.project_id}")
 
-        task.status = TaskStatus.RUNNING
+        task.status = TaskStatus.RUNNING.value
         task.run_count += 1
         task.last_run_at = datetime.now().isoformat()
         self._save_tasks()
@@ -265,20 +265,21 @@ class TaskScheduler:
                 self._task_callback(task.project_id)
 
             # 更新下次执行时间
-            if task.trigger_type == TriggerType.INTERVAL:
+            interval_step = task.interval_sec or 3600
+            if task.trigger_type == TriggerType.INTERVAL.value:
                 task.next_run_at = (
-                    datetime.now() + timedelta(seconds=task.interval_seconds)
+                    datetime.now() + timedelta(seconds=interval_step)
                 ).isoformat()
-                task.status = TaskStatus.PENDING
-            elif task.trigger_type == TriggerType.CRON:
+                task.status = TaskStatus.PENDING.value
+            elif task.trigger_type == TriggerType.CRON.value:
                 task.next_run_at = self._calc_next_cron_run(
-                    task.cron_expression,
-                    datetime.now()
+                    task.cron_expression or "* * * * *",
+                    datetime.now(),
                 )
-                task.status = TaskStatus.PENDING
+                task.status = TaskStatus.PENDING.value
             else:
                 # 一次性任务完成后标记为完成
-                task.status = TaskStatus.COMPLETED
+                task.status = TaskStatus.COMPLETED.value
 
             task.last_error = None
 
@@ -288,12 +289,12 @@ class TaskScheduler:
 
             # 检查是否需要重试
             if task.run_count < self.config.retry_times:
-                task.status = TaskStatus.PENDING
+                task.status = TaskStatus.PENDING.value
                 task.next_run_at = (
                     datetime.now() + timedelta(seconds=self.config.retry_interval)
                 ).isoformat()
             else:
-                task.status = TaskStatus.FAILED
+                task.status = TaskStatus.FAILED.value
 
         self._save_tasks()
 
@@ -314,7 +315,8 @@ class TaskScheduler:
         try:
             with open(self._tasks_file, 'w', encoding='utf-8') as f:
                 tasks_data = {
-                    tid: asdict(task) for tid, task in self._tasks.items()
+                    tid: task.model_dump(mode="json")
+                    for tid, task in self._tasks.items()
                 }
                 json.dump(tasks_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -331,12 +333,7 @@ class TaskScheduler:
 
             with self._lock:
                 for tid, data in tasks_data.items():
-                    # 转换trigger_type为枚举
-                    if 'trigger_type' in data:
-                        data['trigger_type'] = TriggerType(data['trigger_type'])
-                    if 'status' in data:
-                        data['status'] = TaskStatus(data['status'])
-                    self._tasks[tid] = PredictionTask(**data)
+                    self._tasks[tid] = PredictionTask.model_validate(data)
 
         except (FileNotFoundError, json.JSONDecodeError):
             pass
@@ -349,8 +346,16 @@ class TaskScheduler:
             return {
                 "running": self._running,
                 "total_tasks": len(self._tasks),
-                "pending": sum(1 for t in self._tasks.values() if t.status == TaskStatus.PENDING),
-                "running_count": sum(1 for t in self._tasks.values() if t.status == TaskStatus.RUNNING),
-                "completed": sum(1 for t in self._tasks.values() if t.status == TaskStatus.COMPLETED),
-                "failed": sum(1 for t in self._tasks.values() if t.status == TaskStatus.FAILED),
+                "pending": sum(
+                    1 for t in self._tasks.values() if t.status == TaskStatus.PENDING.value
+                ),
+                "running_count": sum(
+                    1 for t in self._tasks.values() if t.status == TaskStatus.RUNNING.value
+                ),
+                "completed": sum(
+                    1 for t in self._tasks.values() if t.status == TaskStatus.COMPLETED.value
+                ),
+                "failed": sum(
+                    1 for t in self._tasks.values() if t.status == TaskStatus.FAILED.value
+                ),
             }

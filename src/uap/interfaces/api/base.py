@@ -127,7 +127,7 @@ class UAPApiBase:
 
             self.project_store.save_prediction_result(project_id, result)
 
-            project.last_prediction_at = result.predicted_at
+            project.last_prediction_at = result.created_at
             self.project_store.save_project(project)
 
         except Exception as e:

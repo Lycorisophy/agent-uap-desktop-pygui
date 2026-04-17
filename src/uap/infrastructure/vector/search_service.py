@@ -464,7 +464,7 @@ class VectorSearchService:
         
         if prediction_data:
             metadata.update({
-                "predicted_at": prediction_data.get("predicted_at"),
+                "created_at": prediction_data.get("created_at"),
                 "horizon_days": prediction_data.get("horizon_seconds", 0) / 86400,
                 "entropy": prediction_data.get("entropy_value"),
                 "system_state": prediction_data.get("system_state")

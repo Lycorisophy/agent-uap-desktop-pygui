@@ -6,12 +6,60 @@ from datetime import datetime
 from typing import Optional
 
 from uap.interfaces.api._log import _LOG
+from uap.infrastructure.scheduler.task_scheduler import TaskStatus
+from uap.project.models import PredictionConfig
 
 
 class PredictionApiMixin:
     def save_prediction_config(self, project_id: str, config_data: dict) -> dict:
         """Save prediction config"""
-        return self.project_service.save_prediction_config(project_id, config_data)
+        cfg = PredictionConfig.model_validate(config_data)
+        return self.project_service.save_prediction_config(project_id, cfg)
+
+    def update_prediction_config(
+        self,
+        project_id: str,
+        frequency_sec: int,
+        horizon_sec: int,
+    ) -> dict:
+        """Update prediction frequency and horizon from the desktop UI."""
+        project = self.project_store.get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found"}
+        cfg = project.prediction_config.model_copy(
+            update={
+                "frequency_sec": int(frequency_sec),
+                "horizon_sec": int(horizon_sec),
+            }
+        )
+        out = self.project_service.save_prediction_config(project_id, cfg)
+        if out.get("ok"):
+            return {"success": True}
+        return {"success": False, "error": out.get("error", "Save failed")}
+
+    def start_prediction(self, project_id: str) -> dict:
+        """Start periodic prediction: register interval task and run scheduler."""
+        project = self.project_store.get_project(project_id)
+        if not project:
+            return {"success": False, "error": "Project not found"}
+        interval_sec = project.prediction_config.frequency_sec
+        r = self.create_prediction_task(project_id, "interval", interval_sec)
+        if r.get("success"):
+            self.scheduler.start()
+            return {"success": True, "task_id": r.get("task_id")}
+        if r.get("task_id"):
+            self.scheduler.start()
+            return {"success": True, "task_id": r["task_id"], "already_running": True}
+        return r
+
+    def stop_prediction(self, project_id: str) -> dict:
+        """Remove all scheduled tasks for the project (stops periodic prediction)."""
+        tasks = self.scheduler.get_project_tasks(project_id)
+        removed = 0
+        for t in tasks:
+            if self.scheduler.remove_task(t.id):
+                removed += 1
+        return {"success": True, "removed": removed}
 
     def get_prediction_config(self, project_id: str) -> Optional[dict]:
         """Get prediction config"""
@@ -32,7 +80,11 @@ class PredictionApiMixin:
             return {"success": False, "error": "Project not found"}
 
         existing_tasks = self.scheduler.get_project_tasks(project_id)
-        active_tasks = [t for t in existing_tasks if t.status.value in ["pending", "running"]]
+        active_tasks = [
+            t
+            for t in existing_tasks
+            if t.status in (TaskStatus.PENDING.value, TaskStatus.RUNNING.value)
+        ]
         if active_tasks:
             return {
                 "success": False,
@@ -98,7 +150,7 @@ class PredictionApiMixin:
         )
 
         self.project_store.save_prediction_result(project_id, result)
-        project.last_prediction_at = result.predicted_at
+        project.last_prediction_at = result.created_at
         self.project_store.save_project(project)
 
         return {

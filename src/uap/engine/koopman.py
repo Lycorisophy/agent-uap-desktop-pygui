@@ -218,7 +218,7 @@ class KoopmanPredictor(Predictor):
         Returns:
             PredictionResult: 预测结果
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from uap.project.models import PredictionResult as PR
         
         # 如果没有训练过，使用简化的线性外推
@@ -270,8 +270,15 @@ class KoopmanPredictor(Predictor):
         # 评估系统状态
         system_state = self._assess_system_state(trajectory)
         
+        now = datetime.now(timezone.utc)
         return PR(
-            method=PredictionMethod.KOOPMAN.value,
+            project_id="_engine",
+            task_id="_engine",
+            prediction_time_start=now.isoformat(),
+            prediction_time_end=(
+                now + timedelta(seconds=horizon_sec)
+            ).isoformat(),
+            method_used=PredictionMethod.KOOPMAN.value,
             trajectory=trajectory,
             confidence_lower=confidence_lower,
             confidence_upper=confidence_upper,
@@ -279,7 +286,6 @@ class KoopmanPredictor(Predictor):
             system_state=system_state,
             entropy_value=self._estimate_entropy(trajectory),
             turbulence_level=self._estimate_turbulence(trajectory),
-            predicted_at=datetime.now().isoformat()
         )
     
     def _predict_linear(
@@ -289,7 +295,7 @@ class KoopmanPredictor(Predictor):
         frequency_sec: int
     ):
         """简化的线性外推预测"""
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from uap.project.models import PredictionResult as PR
         
         trajectory = []
@@ -330,8 +336,15 @@ class KoopmanPredictor(Predictor):
         anomalies = self._detect_anomalies(trajectory)
         system_state = self._assess_system_state(trajectory)
         
+        now = datetime.now(timezone.utc)
         return PR(
-            method=PredictionMethod.KOOPMAN.value,
+            project_id="_engine",
+            task_id="_engine",
+            prediction_time_start=now.isoformat(),
+            prediction_time_end=(
+                now + timedelta(seconds=horizon_sec)
+            ).isoformat(),
+            method_used=PredictionMethod.KOOPMAN.value,
             trajectory=trajectory,
             confidence_lower=confidence_lower,
             confidence_upper=confidence_upper,
@@ -339,7 +352,6 @@ class KoopmanPredictor(Predictor):
             system_state=system_state,
             entropy_value=self._estimate_entropy(trajectory),
             turbulence_level=self._estimate_turbulence(trajectory),
-            predicted_at=datetime.now().isoformat()
         )
     
     def _infer_growth_rates(self) -> dict:
@@ -372,15 +384,16 @@ class KoopmanPredictor(Predictor):
                     None
                 )
                 
-                if var_def and var_def.range:
-                    if var_def.range.get("max") and value > var_def.range["max"]:
+                if var_def and var_def.bounds_max is not None:
+                    vmax = var_def.bounds_max
+                    if value > vmax:
                         anomalies.append({
                             "timestamp": point["timestamp"],
                             "variable": var,
                             "value": value,
-                            "threshold": var_def.range["max"],
-                            "severity": "critical" if value > var_def.range["max"] * 1.1 else "warning",
-                            "description": f"{var}超过最大值"
+                            "threshold": vmax,
+                            "severity": "critical" if value > vmax * 1.1 else "warning",
+                            "description": f"{var}超过最大值",
                         })
         
         return anomalies

@@ -146,6 +146,136 @@ class VisualizationManager {
             </div>
         `;
     }
+
+    /**
+     * 根据 PredictionResult（model_dump）构建轨迹与置信带 SVG。
+     * @param {object} result
+     * @returns {string|null} SVG 字符串，无数据时返回 null
+     */
+    buildPredictionTrajectorySvg(result) {
+        const traj = result && Array.isArray(result.trajectory) ? result.trajectory : [];
+        if (!traj.length) return null;
+
+        const firstVals = traj[0].values;
+        if (!firstVals || typeof firstVals !== 'object') return null;
+        const varNames = Object.keys(firstVals);
+        if (!varNames.length) return null;
+
+        const W = 800;
+        const H = 300;
+        const padL = 56;
+        const padR = 20;
+        const padT = 28;
+        const padB = 40;
+        const innerW = W - padL - padR;
+        const innerH = H - padT - padB;
+
+        const xs = traj.map((p, i) => {
+            const raw = p.timestamp;
+            const t = raw ? Date.parse(raw) : NaN;
+            return Number.isFinite(t) ? t : i;
+        });
+        const xMin = Math.min(...xs);
+        const xMax = Math.max(...xs);
+        const xSpan = xMax - xMin || 1;
+        const xScale = (x) => padL + ((x - xMin) / xSpan) * innerW;
+
+        const lowerList = result.confidence_lower || [];
+        const upperList = result.confidence_upper || [];
+
+        const palette = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea', '#0891b2', '#ea580c'];
+
+        const parts = [];
+        const legend = varNames.map((name, idx) => {
+            const c = palette[idx % palette.length];
+            return `<span class="traj-legend-item"><span class="traj-swatch" style="background:${c}"></span>${escapeHtml(name)}</span>`;
+        }).join('');
+
+        varNames.forEach((name, vidx) => {
+            const color = palette[vidx % palette.length];
+            let vmin = Infinity;
+            let vmax = -Infinity;
+            traj.forEach((p, i) => {
+                const v = p.values && p.values[name];
+                if (typeof v === 'number' && Number.isFinite(v)) {
+                    vmin = Math.min(vmin, v);
+                    vmax = Math.max(vmax, v);
+                }
+                let lo = p.confidence_lower && typeof p.confidence_lower === 'object'
+                    ? p.confidence_lower[name]
+                    : (lowerList[i] && typeof lowerList[i] === 'object' ? lowerList[i][name] : undefined);
+                let hi = p.confidence_upper && typeof p.confidence_upper === 'object'
+                    ? p.confidence_upper[name]
+                    : (upperList[i] && typeof upperList[i] === 'object' ? upperList[i][name] : undefined);
+                if (typeof lo === 'number' && Number.isFinite(lo)) vmin = Math.min(vmin, lo);
+                if (typeof hi === 'number' && Number.isFinite(hi)) vmax = Math.max(vmax, hi);
+            });
+            if (!Number.isFinite(vmin) || !Number.isFinite(vmax)) return;
+            if (vmin === vmax) {
+                vmin -= 1;
+                vmax += 1;
+            }
+            const yScale = (val) => padT + innerH * (1 - (val - vmin) / (vmax - vmin));
+
+            const upperPts = [];
+            const lowerPts = [];
+            traj.forEach((p, i) => {
+                const x = xScale(xs[i]);
+                let lo = p.confidence_lower && typeof p.confidence_lower === 'object'
+                    ? p.confidence_lower[name]
+                    : (lowerList[i] && typeof lowerList[i] === 'object' ? lowerList[i][name] : undefined);
+                let hi = p.confidence_upper && typeof p.confidence_upper === 'object'
+                    ? p.confidence_upper[name]
+                    : (upperList[i] && typeof upperList[i] === 'object' ? upperList[i][name] : undefined);
+                if (typeof lo !== 'number' || !Number.isFinite(lo)) lo = p.values[name];
+                if (typeof hi !== 'number' || !Number.isFinite(hi)) hi = p.values[name];
+                upperPts.push(`${x},${yScale(hi)}`);
+                lowerPts.unshift(`${x},${yScale(lo)}`);
+            });
+            if (upperPts.length > 1) {
+                const dBand = `M ${upperPts.join(' L ')} L ${lowerPts.join(' L ')} Z`;
+                parts.push(`<path class="traj-band" d="${dBand}" fill="${color}" fill-opacity="0.12" stroke="none"/>`);
+            }
+
+            const linePts = traj.map((p, i) => {
+                const x = xScale(xs[i]);
+                const v = p.values[name];
+                const y = yScale(typeof v === 'number' ? v : vmin);
+                return `${x},${y}`;
+            }).join(' ');
+            parts.push(`<polyline class="traj-line" fill="none" stroke="${color}" stroke-width="2" points="${linePts}"/>`);
+        });
+
+        const anomalies = Array.isArray(result.anomalies) ? result.anomalies : [];
+        anomalies.forEach((a) => {
+            const ts = a.timestamp ? Date.parse(a.timestamp) : NaN;
+            if (!Number.isFinite(ts)) return;
+            let nearest = 0;
+            let best = Infinity;
+            xs.forEach((xv, i) => {
+                const d = Math.abs(xv - ts);
+                if (d < best) {
+                    best = d;
+                    nearest = i;
+                }
+            });
+            const x = xScale(xs[nearest]);
+            parts.push(
+                `<line class="traj-anomaly-line" x1="${x}" y1="${padT}" x2="${x}" y2="${H - padB}" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 3"/>`,
+            );
+            parts.push(
+                `<circle class="traj-anomaly-dot" cx="${x}" cy="${padT + 8}" r="4" fill="#f97316"/>`,
+            );
+        });
+
+        const svg = `<svg class="prediction-traj-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+            <rect class="traj-bg" x="0" y="0" width="${W}" height="${H}" fill="#f8fafc"/>
+            <text class="traj-title" x="${padL}" y="18" font-size="12" fill="#475569">预测轨迹（各变量按自身取值范围映射到同一图区）</text>
+            <foreignObject x="${padL}" y="4" width="${innerW}" height="22"><div xmlns="http://www.w3.org/1999/xhtml" class="traj-legend">${legend}</div></foreignObject>
+            ${parts.join('\n')}
+        </svg>`;
+        return svg;
+    }
 }
 
 // ==================== 场景模板选择器 ====================
