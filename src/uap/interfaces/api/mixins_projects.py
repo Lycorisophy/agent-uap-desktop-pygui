@@ -79,12 +79,13 @@ class ProjectsApiMixin:
             project_id, messages, user_prompt
         )
 
-    def modeling_chat(self, project_id: str, message: str) -> dict:
-        """Chat with the agent for system modeling using ReAct mode"""
+    def modeling_chat(self, project_id: str, message: str, mode: str | None = None) -> dict:
+        """建模对话；``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。"""
         _LOG.info(
-            "[API] modeling_chat called: project_id=%s, message_len=%d",
+            "[API] modeling_chat called: project_id=%s, message_len=%d, mode=%s",
             project_id,
             len(message),
+            mode,
         )
         try:
             messages = self.project_store.load_messages(project_id)
@@ -99,27 +100,22 @@ class ProjectsApiMixin:
             )
             self.project_store.save_messages(project_id, messages)
 
-            mode = (self.config.agent.modeling_agent_mode or "react").strip().lower()
-            if mode == "plan":
-                _LOG.info("[API] Calling plan_modeling (Plan mode)...")
-                result = self.project_service.plan_modeling(
-                    project_id=project_id,
-                    user_message=message,
-                    card_manager=self.card_manager,
-                    web_search_func=self._get_web_search_func(),
-                )
-            else:
-                _LOG.info("[API] Calling react_modeling (ReAct mode)...")
-                result = self.project_service.react_modeling(
-                    project_id=project_id,
-                    user_message=message,
-                    card_manager=self.card_manager,
-                    web_search_func=self._get_web_search_func(),
-                )
+            effective_mode = mode
+            if effective_mode is None or not str(effective_mode).strip():
+                effective_mode = self.config.agent.modeling_agent_mode or "react"
+
+            result = self.project_service.react_modeling(
+                project_id=project_id,
+                user_message=message,
+                card_manager=self.card_manager,
+                web_search_func=self._get_web_search_func(),
+                mode=str(effective_mode).strip().lower(),
+            )
             _LOG.info(
-                "[API] modeling result: ok=%s, success=%s",
+                "[API] modeling result: ok=%s, success=%s, mode_used=%s",
                 result.get("ok"),
                 result.get("success"),
+                result.get("mode_used"),
             )
 
             if result.get("ok"):
@@ -127,7 +123,14 @@ class ProjectsApiMixin:
 
                 steps_info = ""
                 if result.get("steps"):
-                    label = "Plan" if (self.config.agent.modeling_agent_mode or "").strip().lower() == "plan" else "ReAct"
+                    mu = (result.get("mode_used") or "").strip().lower()
+                    mr = (result.get("mode_requested") or "").strip().lower()
+                    if mr == "auto" and mu:
+                        label = f"Auto→{mu}"
+                    elif mu == "plan":
+                        label = "Plan"
+                    else:
+                        label = "ReAct"
                     steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
                     for step in result["steps"][-3:]:
                         if step.get("thought"):
@@ -175,6 +178,10 @@ class ProjectsApiMixin:
                     "pending_card": result.get("pending_card"),
                     "success": result.get("success", False),
                     "tool_calls": result.get("tool_calls", 0),
+                    "mode_used": result.get("mode_used"),
+                    "mode_requested": result.get("mode_requested"),
+                    "plan": result.get("plan"),
+                    "replan_count": result.get("replan_count", 0),
                 }
             error_msg = result.get("error", "建模失败")
             _LOG.warning("[API] modeling_chat failed: %s", error_msg)

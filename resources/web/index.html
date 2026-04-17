@@ -70,8 +70,18 @@
                             </div>
                         </div>
                         <div class="chat-input">
-                            <textarea id="chatInput" placeholder="例如：想预测本市下周气温走势…" rows="3"></textarea>
-                            <button class="btn btn-primary" id="sendMessageBtn">发送</button>
+                            <div class="modeling-mode-row">
+                                <label for="modelingModeSelect">模式</label>
+                                <select id="modelingModeSelect" class="modeling-mode-select" title="执行模式">
+                                    <option value="auto" selected>Auto（自动）</option>
+                                    <option value="react">ReAct</option>
+                                    <option value="plan">Plan</option>
+                                </select>
+                            </div>
+                            <div class="chat-input-main">
+                                <textarea id="chatInput" placeholder="例如：想预测本市下周气温走势…" rows="3"></textarea>
+                                <button class="btn btn-primary" id="sendMessageBtn">发送</button>
+                            </div>
                         </div>
                     </div>
                     <div class="agent-sidebar">

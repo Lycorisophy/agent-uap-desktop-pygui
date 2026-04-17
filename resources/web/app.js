@@ -919,9 +919,12 @@ async function sendModelingMessage() {
     
     try {
         if (window.pywebview) {
+            const modeSelect = document.getElementById('modelingModeSelect');
+            const mode = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
             const response = await window.pywebview.api.modeling_chat(
                 state.currentProject.id,
-                message
+                message,
+                mode
             );
             removeLoadingMessage(loadingId);
             if (response) {

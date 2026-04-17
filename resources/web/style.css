@@ -469,10 +469,32 @@ select {
 
 .chat-input {
     display: flex;
-    gap: 12px;
+    flex-direction: column;
+    gap: 10px;
     padding: 16px;
     border-top: 1px solid var(--border-color);
     background: white;
+}
+
+.modeling-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+}
+
+.modeling-mode-select {
+    min-width: 140px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md, 6px);
+    border: 1px solid var(--border-color);
+    background: var(--card-bg, #fff);
+}
+
+.chat-input-main {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
 }
 
 .chat-input textarea {

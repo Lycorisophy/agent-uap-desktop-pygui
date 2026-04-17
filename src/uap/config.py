@@ -197,13 +197,13 @@ class AgentConfig(BaseModel):
       供上层在创建 Agent 时作为默认安全预算（可在 service 层覆盖）。
     - ``builtin_scheduler_enabled``：定时预测与后台任务，属 **环境 Harness**，
       与对话式行动模式正交。
-    - ``modeling_agent_mode``：``modeling_chat`` 使用的行动模式（``plan`` 为先规划后执行）。
+    - ``modeling_agent_mode``：未传每轮 ``mode`` 时的默认（``react`` / ``plan`` / ``auto``）。
     """
     react_max_steps_default: int = Field(default=12, ge=1, le=200)
     builtin_scheduler_enabled: bool = True
     modeling_agent_mode: str = Field(
         default="react",
-        description="建模对话：react 或 plan",
+        description="建模默认模式（react/plan/auto）；API 每轮传入的 mode 优先于本字段",
     )
 
 
