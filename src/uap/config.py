@@ -120,11 +120,19 @@ class EmbeddingConfig(BaseModel):
 
 class StorageConfig(BaseModel):
     """存储配置"""
+
+    model_config = {"extra": "ignore"}
+
     # 项目存储根目录，空则使用 ~/.uap/projects
     projects_root: str = ""
     # Milvus Lite 本地库文件路径，空则使用 ~/.uap/milvus_lite.db
     milvus_lite_path: str = ""
-    
+    # lite：本地文件 + milvus_lite 包；standalone：连接独立 Milvus（如 Docker 映射 19530）
+    milvus_backend: Literal["lite", "standalone"] = "lite"
+    milvus_use_tls: bool = False
+    # 开启鉴权时填写（与 MilvusClient token 一致；本地 Docker 常为空）
+    milvus_token: str = ""
+
     # MySQL
     mysql_host: str = "localhost"
     mysql_port: int = 3306
@@ -158,6 +166,29 @@ class StorageConfig(BaseModel):
     minio_secret_key: str = "minioadmin"
     minio_secure: bool = False
     minio_bucket_prefix: str = "uap"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_storage_milvus_yaml(cls, data: Any) -> Any:
+        """兼容 YAML 中 ``storage.milvus: { host, port, ... }`` 嵌套写法。"""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        nest = out.pop("milvus", None)
+        if isinstance(nest, dict):
+            if "host" in nest:
+                out["milvus_host"] = nest["host"]
+            if "port" in nest:
+                out["milvus_port"] = nest["port"]
+            if "collection_prefix" in nest:
+                out["milvus_collection_prefix"] = nest["collection_prefix"]
+            if "backend" in nest:
+                out["milvus_backend"] = nest["backend"]
+            if "use_tls" in nest:
+                out["milvus_use_tls"] = nest["use_tls"]
+            if "token" in nest:
+                out["milvus_token"] = nest["token"]
+        return out
 
 
 class PredictionConfig(BaseModel):

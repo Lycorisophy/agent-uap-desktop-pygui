@@ -12,6 +12,7 @@ import logging
 from typing import Any, Optional, List
 from pathlib import Path
 
+from uap.react.project_path_utils import normalize_relative_path_for_project
 from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory, SkillComplexity
 
 _LOG = logging.getLogger("uap.react.file_access")
@@ -131,6 +132,8 @@ class FileAccessSkill(AtomicSkill):
         """
         action = kwargs.get("action", "read")
         path = kwargs.get("path", "")
+        if self._project_folder and path and not os.path.isabs(path):
+            path = normalize_relative_path_for_project(path, self._project_folder)
         encoding = kwargs.get("encoding", "utf-8")
         max_size = kwargs.get("max_size", 1024 * 1024)
 

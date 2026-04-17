@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from uap.react.project_path_utils import normalize_relative_path_for_project
 from uap.skill.atomic_skills import AtomicSkill, SkillCategory, SkillComplexity, SkillMetadata
 
 _LOG = logging.getLogger("uap.react.win11_fs")
@@ -52,7 +53,8 @@ def resolve_project_path(project_root: Path, user_path: str) -> tuple[bool, str,
         if Path(raw).is_absolute():
             cand = Path(raw).resolve()
         else:
-            cand = (root / raw).resolve()
+            rel = normalize_relative_path_for_project(raw, str(root))
+            cand = (root / rel).resolve()
     except OSError as e:
         return False, f"路径解析失败: {e}", None
 

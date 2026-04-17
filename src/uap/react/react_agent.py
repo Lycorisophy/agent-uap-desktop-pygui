@@ -352,6 +352,11 @@ class ReactAgent:
             f"- **墙钟超时**约为 {t_str} 秒；与轮数上限**先触发者**为准。\n"
             f"- 成功执行 **ask_user** 累计达到 {int(self.max_ask_user_per_turn)} 次后，"
             "本轮图运行会结束并等待用户**下一条消息**，请勿假设同轮内会继续自动追问。\n"
+            "- **工具失败时**：若**同一技能**在最近观察中已连续失败 **2** 次，"
+            "必须停止用相同方式重试，改用 **ask_user** 向用户说明错误原因并请其提供路径、文件或数据；"
+            "系统也会在连续失败过多时强制结束本轮。\n"
+            "- **file_access 路径**：`path` 为相对项目根的路径（如 `data`、`subdir/file.csv`），"
+            "不要重复拼项目文件夹名或项目 ID。\n"
         )
 
     def _format_trajectory(
@@ -482,6 +487,18 @@ class ReactAgent:
             if ac:
                 result["action"] = ac.group(1).strip().strip("*").strip()
 
+        # 行内「好的。Action: xxx」等非行首格式（MiniMax 等常见）
+        if not (result.get("action") or "").strip():
+            loose = list(
+                re.finditer(
+                    r"(?:Action|行动)\s*[:：]\s*([A-Za-z0-9_]+)",
+                    t,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+            )
+            if loose:
+                result["action"] = loose[-1].group(1).strip()
+
         if not (result.get("action") or "").strip():
             return
 
@@ -489,9 +506,12 @@ class ReactAgent:
         if result.get("action_input"):
             return
 
-        ai_mark = re.search(r"(?im)(?:Action\s*Input|行动输入)\s*[:：]\s*", t)
-        if not ai_mark:
+        marks = list(
+            re.finditer(r"(?im)(?:Action\s*Input|行动输入)\s*[:：]\s*", t),
+        )
+        if not marks:
             return
+        ai_mark = marks[-1]
         tail = t[ai_mark.end() :].lstrip()
         blob = _extract_balanced_json_object(tail)
         if blob:

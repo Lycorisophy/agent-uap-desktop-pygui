@@ -21,6 +21,11 @@ const state = {
         embedBaseUrl: '',
         embedDimension: 4096,
         milvusLitePath: '',
+        milvusBackend: 'lite',
+        milvusHost: 'localhost',
+        milvusPort: 19530,
+        milvusUseTls: false,
+        milvusTokenSet: false,
         modelingIntentContextRounds: 2,
         reactMaxStepsDefault: 8,
         classifyUseSeparate: false,
@@ -2811,6 +2816,10 @@ function bindSettingsEvents() {
             setClassifierFieldsDisabled(!clsSep.checked);
         });
     }
+    const milvusBe = document.getElementById('milvusBackend');
+    if (milvusBe) {
+        milvusBe.addEventListener('change', toggleMilvusBackendUI);
+    }
 }
 
 function applyLlmProviderPreset() {
@@ -2822,6 +2831,22 @@ function applyLlmProviderPreset() {
     const mo = document.getElementById('llmModel');
     if (bu && pr.base_url) bu.value = pr.base_url;
     if (mo && pr.model) mo.value = pr.model;
+}
+
+function toggleMilvusBackendUI() {
+    const mode = document.getElementById('milvusBackend')?.value || 'lite';
+    const lite = mode === 'lite';
+    const rows = [
+        ['milvusLitePathRow', lite],
+        ['milvusStandaloneHostRow', !lite],
+        ['milvusStandalonePortRow', !lite],
+        ['milvusStandaloneTlsRow', !lite],
+        ['milvusStandaloneTokenRow', !lite]
+    ];
+    rows.forEach(([id, show]) => {
+        const row = document.getElementById(id);
+        if (row) row.style.display = show ? '' : 'none';
+    });
 }
 
 function updateLlmPresetHint() {
@@ -2862,6 +2887,12 @@ async function loadSettings() {
                 embedBaseUrl: emb.base_url || '',
                 embedDimension: emb.dimension != null ? emb.dimension : 4096,
                 milvusLitePath: storage.milvus_lite_path || '',
+                milvusBackend: storage.milvus_backend || 'lite',
+                milvusHost: storage.milvus_host || 'localhost',
+                milvusPort:
+                    storage.milvus_port != null ? storage.milvus_port : 19530,
+                milvusUseTls: !!storage.milvus_use_tls,
+                milvusTokenSet: !!storage.milvus_token_set,
                 modelingIntentContextRounds:
                     ag.modeling_intent_context_rounds != null
                         ? ag.modeling_intent_context_rounds
@@ -2901,6 +2932,9 @@ function renderSettings() {
         ['embedBaseUrl', state.settings.embedBaseUrl],
         ['embedDimension', state.settings.embedDimension],
         ['milvusLitePath', state.settings.milvusLitePath],
+        ['milvusBackend', state.settings.milvusBackend],
+        ['milvusHost', state.settings.milvusHost],
+        ['milvusPort', state.settings.milvusPort],
         ['modelingIntentContextRounds', state.settings.modelingIntentContextRounds],
         ['reactMaxStepsDefault', state.settings.reactMaxStepsDefault],
         ['classifyLlmProvider', state.settings.classifyProvider],
@@ -2929,6 +2963,16 @@ function renderSettings() {
             ? '已保存密钥（留空不修改；输入新值则覆盖）'
             : '远程厂商必填；本地 Ollama 可留空';
     }
+    const tlsEl = document.getElementById('milvusUseTls');
+    if (tlsEl) tlsEl.checked = !!state.settings.milvusUseTls;
+    const mtk = document.getElementById('milvusToken');
+    if (mtk) {
+        mtk.value = '';
+        mtk.placeholder = state.settings.milvusTokenSet
+            ? '已保存 Token（留空不修改）'
+            : '本地无鉴权可留空';
+    }
+    toggleMilvusBackendUI();
     updateLlmPresetHint();
 }
 
@@ -2948,6 +2992,17 @@ async function saveSettings() {
         dimension: parseInt(document.getElementById('embedDimension')?.value || 4096, 10)
     };
     const milvusPath = document.getElementById('milvusLitePath')?.value?.trim() || '';
+    const milvusBackend = document.getElementById('milvusBackend')?.value || 'lite';
+    const milvusHost = document.getElementById('milvusHost')?.value?.trim() || 'localhost';
+    const milvusPortRaw = parseInt(
+        document.getElementById('milvusPort')?.value || '19530',
+        10
+    );
+    const milvusPort = Number.isFinite(milvusPortRaw)
+        ? Math.max(1, Math.min(65535, milvusPortRaw))
+        : 19530;
+    const milvusUseTls = !!document.getElementById('milvusUseTls')?.checked;
+    const milvusTokenRaw = document.getElementById('milvusToken')?.value?.trim();
 
     const roundsRaw = parseInt(
         document.getElementById('modelingIntentContextRounds')?.value || '2',
@@ -2979,12 +3034,21 @@ async function saveSettings() {
         agent.modeling_classifier_llm = Object.keys(sub).length ? sub : null;
     }
 
+    const storagePayload = {
+        milvus_lite_path: milvusPath,
+        milvus_backend: milvusBackend,
+        milvus_host: milvusHost,
+        milvus_port: milvusPort,
+        milvus_use_tls: milvusUseTls
+    };
+    if (milvusTokenRaw) {
+        storagePayload.milvus_token = milvusTokenRaw;
+    }
+
     const settings = {
         llm,
         embedding,
-        storage: {
-            milvus_lite_path: milvusPath
-        },
+        storage: storagePayload,
         prediction_defaults: {
             frequency_sec: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
             horizon_sec: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
@@ -3017,6 +3081,12 @@ async function saveSettings() {
             embedBaseUrl: embedding.base_url,
             embedDimension: embedding.dimension,
             milvusLitePath: milvusPath,
+            milvusBackend,
+            milvusHost,
+            milvusPort,
+            milvusUseTls,
+            milvusTokenSet:
+                state.settings.milvusTokenSet || !!milvusTokenRaw,
             modelingIntentContextRounds: agent.modeling_intent_context_rounds,
             reactMaxStepsDefault: agent.react_max_steps_default,
             classifyUseSeparate: !!useClsSep && !!agent.modeling_classifier_llm,

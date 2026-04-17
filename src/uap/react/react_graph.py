@@ -16,6 +16,25 @@ from uap.skill.models import ActionNode, ActionType
 
 _LOG = logging.getLogger("uap.react.graph")
 
+# 连续 N 次同一工具且均 is_error 时熔断，避免无效循环拖满步数
+_DEFAULT_FAILURE_CIRCUIT = 3
+
+
+def _repeated_failure_circuit_tripped(
+    steps: list[ReactStep],
+    consecutive: int = _DEFAULT_FAILURE_CIRCUIT,
+) -> bool:
+    if len(steps) < consecutive:
+        return False
+    tail = steps[-consecutive:]
+    names = [(getattr(s, "action", "") or "").strip() for s in tail]
+    if len(set(names)) != 1:
+        return False
+    name = names[0]
+    if not name or name in ("FINAL_ANSWER", "ask_user", "circuit_breaker"):
+        return False
+    return all(getattr(s, "is_error", False) for s in tail)
+
 
 class _ReactState(TypedDict, total=False):
     task: str
@@ -124,6 +143,30 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
 
         steps = list(state.get("steps", []))
         step_id = len(steps) + 1
+        if _repeated_failure_circuit_tripped(steps):
+            _LOG.warning("[react_graph] Circuit breaker: repeated tool failures (step_id=%d)", step_id)
+            trip = ReactStep(
+                step_id=step_id,
+                thought="",
+                action="circuit_breaker",
+                observation=(
+                    "同一工具已连续多次失败。请勿再重复相同调用；应改用 ask_user "
+                    "向用户说明情况并请其提供正确路径或数据位置。"
+                )[:500],
+                is_error=True,
+                error_message="repeated_tool_failures",
+                duration_ms=0,
+            )
+            return {
+                "steps": steps + [trip],
+                "llm_rounds": int(state.get("llm_rounds", 0)),
+                "finished": True,
+                "success": False,
+                "error_message": "repeated_tool_failures",
+                "pending_native": None,
+                "pending_text": None,
+            }
+
         task = state["task"]
         extra = state.get("extra_context") or {}
         dst_session = state["dst_session"]

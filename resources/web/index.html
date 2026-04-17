@@ -407,8 +407,32 @@
                                 <input type="number" id="embedDimension" min="32" max="32768" step="1" value="4096">
                             </div>
                             <div class="form-group">
+                                <label>Milvus 后端</label>
+                                <select id="milvusBackend">
+                                    <option value="lite">本地 Milvus Lite（文件）</option>
+                                    <option value="standalone">独立服务（Docker / 远程，如 19530）</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="milvusLitePathRow">
                                 <label>Milvus Lite 库路径（可选）</label>
                                 <input type="text" id="milvusLitePath" placeholder="留空为 ~/.uap/milvus_lite.db">
+                            </div>
+                            <div class="form-group" id="milvusStandaloneHostRow" style="display:none;">
+                                <label>Milvus 地址（主机）</label>
+                                <input type="text" id="milvusHost" placeholder="127.0.0.1 或 localhost">
+                            </div>
+                            <div class="form-group" id="milvusStandalonePortRow" style="display:none;">
+                                <label>Milvus 端口</label>
+                                <input type="number" id="milvusPort" min="1" max="65535" value="19530">
+                            </div>
+                            <div class="form-group" id="milvusStandaloneTlsRow" style="display:none;">
+                                <label>
+                                    <input type="checkbox" id="milvusUseTls"> 使用 HTTPS（TLS）
+                                </label>
+                            </div>
+                            <div class="form-group" id="milvusStandaloneTokenRow" style="display:none;">
+                                <label>Milvus Token（可选，启用鉴权时填写）</label>
+                                <input type="password" id="milvusToken" autocomplete="off" placeholder="本地无鉴权可留空">
                             </div>
                         </div>
                     </div>

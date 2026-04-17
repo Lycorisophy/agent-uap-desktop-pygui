@@ -25,6 +25,10 @@ def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
         if isinstance(cl, dict) and cl.get("api_key"):
             raw = cl["api_key"]
             cl["api_key"] = f"<redacted len={len(str(raw))}>"
+    st = out.get("storage")
+    if isinstance(st, dict) and st.get("milvus_token"):
+        raw = st["milvus_token"]
+        st["milvus_token"] = f"<redacted len={len(str(raw))}>"
     return out
 
 
@@ -60,6 +64,9 @@ class ConfigApiMixin:
         llm_dump = self.config.llm.model_dump()
         llm_dump["api_key"] = ""
         llm_dump["api_key_set"] = bool(self.config.llm.api_key)
+        st_dump = self.config.storage.model_dump()
+        st_dump["milvus_token"] = ""
+        st_dump["milvus_token_set"] = bool((self.config.storage.milvus_token or "").strip())
         payload = {
             "prediction_defaults": {
                 "frequency_sec": pred.default_frequency_sec,
@@ -68,15 +75,16 @@ class ConfigApiMixin:
             "llm": llm_dump,
             "llm_presets": llm_provider_presets(),
             "embedding": emb.model_dump(),
-            "storage": self.config.storage.model_dump(),
+            "storage": st_dump,
             "agent": _agent_payload_for_api(self.config),
             "config_path": str(override_path),
         }
         _LOG.info(
-            "[API] get_config: return prediction freq=%s horizon=%s api_key_set=%s milvus_lite_path=%s",
+            "[API] get_config: return prediction freq=%s horizon=%s api_key_set=%s milvus_backend=%s milvus_lite_path=%s",
             pred.default_frequency_sec,
             pred.default_horizon_sec,
             llm_dump.get("api_key_set"),
+            self.config.storage.milvus_backend,
             (self.config.storage.milvus_lite_path or "")[:80] or "(empty)",
         )
         return payload
@@ -122,6 +130,8 @@ class ConfigApiMixin:
                 st_data = dict(config_updates["storage"])
                 merged_st = self.config.storage.model_dump()
                 for k, v in st_data.items():
+                    if k == "milvus_token" and (v is None or v == ""):
+                        continue
                     if v is not None:
                         merged_st[k] = v
                 self.config.storage = StorageConfig.model_validate(merged_st)
@@ -204,11 +214,15 @@ class ConfigApiMixin:
                 self.config.llm.provider,
                 self.config.llm.model,
             )
+            cfg_dump = self.config.model_dump()
+            st = cfg_dump.get("storage")
+            if isinstance(st, dict):
+                cfg_dump["storage"] = {**st, "milvus_token": ""}
             return {
                 "success": True,
                 "message": "Config saved",
                 "config_path": str(config_path),
-                "config": self.config.model_dump(),
+                "config": cfg_dump,
             }
         except Exception as e:
             _LOG.exception("[API] Failed to save config: %s", str(e))

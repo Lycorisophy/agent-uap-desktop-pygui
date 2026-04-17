@@ -50,11 +50,15 @@ storage:
     hosts:
       - "http://localhost:9200"
     index_prefix: "uap"
-  # Milvus
+  # Milvus（知识库向量库）
+  # backend: lite=本地 Milvus Lite 文件（依赖 milvus_lite 包）；standalone=独立服务（如 Docker 映射 19530）
   milvus:
     host: "localhost"
     port: 19530
     collection_prefix: "uap"
+    backend: "lite"
+    use_tls: false
+    token: ""
   # Neo4j
   neo4j:
     uri: "bolt://localhost:7687"

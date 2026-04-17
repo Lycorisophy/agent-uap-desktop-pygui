@@ -6,6 +6,9 @@ from uap.interfaces.api._log import _LOG
 
 
 class KnowledgeApiMixin:
+    def __init__(self):
+        self.knowledge_service = None
+
     def _require_project(self, project_id: str) -> bool:
         try:
             self.project_store.get_project(project_id)
@@ -17,7 +20,10 @@ class KnowledgeApiMixin:
         try:
             if not self._require_project(project_id):
                 return {"ok": False, "error": "项目不存在"}
-            return self.knowledge_service.status(project_id)
+            out = self.knowledge_service.status(project_id)
+            if isinstance(out, dict) and out.get("ok") is False and out.get("error"):
+                _LOG.warning("[KB] status unavailable: %s", out.get("error")[:200])
+            return out
         except Exception as e:
             _LOG.exception("[KB] status")
             return {"ok": False, "error": str(e)}

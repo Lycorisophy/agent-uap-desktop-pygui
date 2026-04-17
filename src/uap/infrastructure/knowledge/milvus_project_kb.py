@@ -1,11 +1,12 @@
 """
-项目知识库：Milvus Lite 本地文件 + 每项目独立 collection，IVF_FLAT + COSINE。
+项目知识库：Milvus（Lite 本地文件 或 独立服务如 Docker）+ 每项目独立 collection，IVF_FLAT + COSINE。
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,6 +17,35 @@ from uap.config import UapConfig
 from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 
 _LOG = logging.getLogger("uap.knowledge")
+
+
+def _milvus_lite_import_ok() -> tuple[bool, str]:
+    """
+    本地 Milvus Lite（文件 URI）依赖 ``milvus_lite`` 包。
+
+    注意：PyPI 上 **milvus-lite 长期未提供 Windows (win_amd64) 轮子**，
+    因此在原生 Windows 上通常无法 ``pip install``，与是否执行
+    ``pip install pymilvus[milvus_lite]`` 无关。
+    """
+    try:
+        import milvus_lite  # noqa: F401
+
+        return True, ""
+    except ImportError:
+        if sys.platform == "win32":
+            return (
+                False,
+                "本地 Milvus Lite 在 Windows 上不可用：PyPI 的 milvus-lite 未提供 win_amd64 轮子，"
+                "无法安装 milvus_lite 模块。可选：在 WSL2/Linux 下运行本应用；"
+                "或在设置中将「Milvus 后端」改为「独立服务」并连接本机 Docker（如 http://127.0.0.1:19530）。"
+                "知识库在仅使用 Lite 文件模式时于本机 Windows 上将处于停用状态。",
+            )
+        return (
+            False,
+            "未安装 milvus-lite。请执行: pip install 'pymilvus[milvus_lite]>=2.4.0'。"
+            "若已安装仍失败，请确认 Python 版本与平台受 pymilvus / milvus-lite 支持。",
+        )
+
 
 # 与需求一致
 INDEX_BUILD_PARAMS: dict[str, Any] = {
@@ -35,7 +65,7 @@ CHUNK_OVERLAP = 120
 MAX_FILE_BYTES = 32 * 1024 * 1024
 
 
-def _milvus_uri(cfg: UapConfig) -> str:
+def _milvus_lite_file_uri(cfg: UapConfig) -> str:
     raw = (cfg.storage.milvus_lite_path or "").strip()
     if raw:
         p = Path(raw).expanduser()
@@ -43,6 +73,13 @@ def _milvus_uri(cfg: UapConfig) -> str:
         p = Path.home() / ".uap" / "milvus_lite.db"
     p.parent.mkdir(parents=True, exist_ok=True)
     return str(p.resolve())
+
+
+def _milvus_standalone_http_uri(cfg: UapConfig) -> str:
+    host = (cfg.storage.milvus_host or "localhost").strip() or "localhost"
+    port = int(cfg.storage.milvus_port)
+    scheme = "https" if cfg.storage.milvus_use_tls else "http"
+    return f"{scheme}://{host}:{port}"
 
 
 def collection_name(project_id: str) -> str:
@@ -106,14 +143,34 @@ class ProjectKnowledgeService:
 
     def _get_client(self) -> MilvusClient:
         if self._client is None:
-            try:
-                self._client = MilvusClient(uri=_milvus_uri(self._config))
-            except Exception as e:
-                _LOG.exception("Milvus Lite 连接失败")
-                raise RuntimeError(
-                    "无法连接 Milvus Lite。请安装: pip install 'pymilvus[milvus_lite]>=2.4.0' "
-                    "并使用 Python 3.10–3.12（部分平台对 milvus-lite 有版本限制）。"
-                ) from e
+            cfg = self._config
+            if cfg.storage.milvus_backend == "standalone":
+                uri = _milvus_standalone_http_uri(cfg)
+                tok = (cfg.storage.milvus_token or "").strip()
+                kw: dict[str, Any] = {}
+                if tok:
+                    kw["token"] = tok
+                try:
+                    self._client = MilvusClient(uri=uri, **kw)
+                except Exception as e:
+                    _LOG.exception("Milvus 独立服务连接失败 uri=%s", uri)
+                    raise RuntimeError(
+                        f"无法连接 Milvus 独立服务（{uri}）。"
+                        "请确认 Docker 已启动、端口已映射（常用 19530），且 pymilvus 版本与 Milvus 2.x 兼容。"
+                    ) from e
+            else:
+                ok, err = _milvus_lite_import_ok()
+                if not ok:
+                    raise RuntimeError(err)
+                try:
+                    self._client = MilvusClient(uri=_milvus_lite_file_uri(cfg))
+                except Exception as e:
+                    _LOG.exception("Milvus Lite 连接失败")
+                    raise RuntimeError(
+                        "无法连接 Milvus Lite（已检测到 milvus_lite 可导入）。"
+                        "请检查存储路径权限或 pymilvus 版本。"
+                        "若使用本地文件 URI，通常仍需: pip install 'pymilvus[milvus_lite]>=2.4.0'。"
+                    ) from e
         return self._client
 
     def _get_ollama(self) -> OllamaClient:
@@ -153,7 +210,10 @@ class ProjectKnowledgeService:
     def ensure_collection(self, project_id: str) -> dict[str, Any]:
         """创建空集合并建立 IVF_FLAT 索引后 load（若已存在则跳过创建）。"""
         name = collection_name(project_id)
-        cli = self._get_client()
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            return {"ok": False, "collection": name, "kb_available": False, "error": str(e)}
         dim = int(self._config.embedding.dimension)
 
         if cli.has_collection(name):
@@ -161,7 +221,7 @@ class ProjectKnowledgeService:
                 cli.load_collection(name)
             except Exception:
                 _LOG.debug("load_collection %s (may already loaded)", name)
-            return {"ok": True, "collection": name, "created": False}
+            return {"ok": True, "collection": name, "created": False, "kb_available": True}
 
         schema = self._build_schema(dim)
         cli.create_collection(collection_name=name, schema=schema, index_params=None)
@@ -176,29 +236,56 @@ class ProjectKnowledgeService:
         )
         cli.create_index(collection_name=name, index_params=ip)
         cli.load_collection(name)
-        return {"ok": True, "collection": name, "created": True}
+        return {"ok": True, "collection": name, "created": True, "kb_available": True}
 
     def status(self, project_id: str) -> dict[str, Any]:
         name = collection_name(project_id)
-        cli = self._get_client()
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            return {
+                "ok": False,
+                "kb_available": False,
+                "exists": False,
+                "collection": name,
+                "row_count": 0,
+                "error": str(e),
+            }
         if not cli.has_collection(name):
-            return {"ok": True, "exists": False, "collection": name, "row_count": 0}
+            return {
+                "ok": True,
+                "kb_available": True,
+                "exists": False,
+                "collection": name,
+                "row_count": 0,
+            }
         try:
             cli.load_collection(name)
         except Exception:
             pass
         stats = cli.get_collection_stats(name)
         rows = int(stats.get("row_count", 0))
-        return {"ok": True, "exists": True, "collection": name, "row_count": rows}
+        return {
+            "ok": True,
+            "kb_available": True,
+            "exists": True,
+            "collection": name,
+            "row_count": rows,
+        }
 
     def import_file(self, project_id: str, file_path: str) -> dict[str, Any]:
         path = Path(file_path).expanduser().resolve()
         if not path.is_file():
             return {"ok": False, "error": f"文件不存在: {path}"}
 
-        self.ensure_collection(project_id)
+        ens = self.ensure_collection(project_id)
+        if not ens.get("ok"):
+            return {"ok": False, "error": ens.get("error") or "知识库不可用", "kb_available": False}
         name = collection_name(project_id)
-        cli = self._get_client()
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e), "kb_available": False}
 
         text = _read_plain_text(path)
         chunks = _chunk_text(text)
@@ -244,9 +331,16 @@ class ProjectKnowledgeService:
         if not pid:
             return
 
-        self.ensure_collection(pid)
+        ens = self.ensure_collection(pid)
+        if not ens.get("ok"):
+            _LOG.warning("KB truncation ingest skipped: %s", ens.get("error"))
+            return
         name = collection_name(pid)
-        cli = self._get_client()
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            _LOG.warning("KB truncation ingest skipped: %s", e)
+            return
         rows: list[dict[str, Any]] = []
         row_idx = 0
 
@@ -288,7 +382,10 @@ class ProjectKnowledgeService:
             return {"ok": False, "error": "查询为空"}
 
         name = collection_name(project_id)
-        cli = self._get_client()
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e), "kb_available": False, "hits": []}
         if not cli.has_collection(name):
             return {"ok": False, "error": "知识库不存在，请先初始化或导入文档"}
 

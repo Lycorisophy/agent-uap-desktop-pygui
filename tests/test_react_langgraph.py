@@ -11,8 +11,28 @@ from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_mo
 from uap.infrastructure.modeling_stream_hub import ModelingStreamHub
 from uap.react.dst_manager import DstManager
 from uap.react.lc_tools import atomic_skills_to_lc_tools
-from uap.react.react_agent import ReactAgent
+from uap.react.react_agent import ReactAgent, ReactStep
+from uap.react.react_graph import _repeated_failure_circuit_tripped
 from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory
+
+
+def test_repeated_failure_circuit_tripped_file_access() -> None:
+    """连续 3 次同一工具且均失败时熔断。"""
+    steps = [
+        ReactStep(step_id=1, action="file_access", is_error=True),
+        ReactStep(step_id=2, action="file_access", is_error=True),
+        ReactStep(step_id=3, action="file_access", is_error=True),
+    ]
+    assert _repeated_failure_circuit_tripped(steps) is True
+
+
+def test_repeated_failure_circuit_not_tripped_if_mixed_tools() -> None:
+    steps = [
+        ReactStep(step_id=1, action="file_access", is_error=True),
+        ReactStep(step_id=2, action="search_knowledge", is_error=True),
+        ReactStep(step_id=3, action="file_access", is_error=True),
+    ]
+    assert _repeated_failure_circuit_tripped(steps) is False
 
 
 def test_create_langchain_chat_model_ollama_native() -> None:
@@ -110,6 +130,28 @@ def test_parse_llm_response_chinese_action_labels() -> None:
     parsed = agent._parse_llm_response(AIMessage(content=text))
     assert (parsed.get("action") or "").strip() == "ask_user"
     assert parsed.get("action_input", {}).get("question")
+
+
+def test_parse_llm_response_inline_action_not_line_start() -> None:
+    """模型在句号后直接接 Action:（非行首），须能解析。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    text = (
+        "先查看数据目录。Action: file_access\n"
+        'Action Input: {"action": "list", "path": "data"}\n'
+    )
+    parsed = agent._parse_llm_response(AIMessage(content=text))
+    assert (parsed.get("action") or "").strip() == "file_access"
 
 
 def test_parse_llm_response_markdown_bold_action() -> None:
