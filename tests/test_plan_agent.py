@@ -13,6 +13,7 @@ def test_plan_generation_prompt_renders() -> None:
         task="预测销量",
         system_model="（无）",
         skills_desc="- a: test",
+        intent_scene_block="（测试占位：未跑意图分类）\n",
     )
     assert "预测销量" in text
     assert "JSON" in text or "json" in text
