@@ -14,3 +14,4 @@ langchain-core>=0.3.0
 langchain-openai>=0.2.0
 langchain-ollama>=0.2.0
 langgraph>=0.2.0
+pymilvus[milvus_lite]>=2.4.0

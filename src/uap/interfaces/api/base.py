@@ -13,6 +13,7 @@ from uap.application.prediction_service import PredictionService
 from uap.scheduler import TaskScheduler, SchedulerConfig
 from uap.card import CardManager, CardGenerator
 from uap.skill import get_atomic_skills_library
+from uap.infrastructure.knowledge import ProjectKnowledgeService
 
 
 class UAPApiBase:
@@ -33,6 +34,7 @@ class UAPApiBase:
         self.card_generator = CardGenerator()
 
         self.atomic_skills = get_atomic_skills_library()
+        self.knowledge_service = ProjectKnowledgeService(self.config)
 
     def _init_scheduler(self) -> TaskScheduler:
         scheduler_config = SchedulerConfig(

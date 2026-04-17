@@ -789,6 +789,65 @@ select {
 }
 
 /* ==================== Toast 通知 ==================== */
+/* 项目知识库 */
+.knowledge-container {
+    padding: 0 1rem 2rem;
+    max-width: 960px;
+}
+.kb-hint {
+    margin-bottom: 1rem;
+    color: #666;
+    font-size: 0.9rem;
+}
+.kb-toolbar {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.kb-status {
+    background: var(--panel-bg, #f5f5f7);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+.kb-status code {
+    font-size: 0.85rem;
+}
+.kb-search-block h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+.kb-search-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.kb-search-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+}
+.kb-hit {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.kb-hit-meta {
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 0.35rem;
+}
+.kb-hit-text {
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.error-text {
+    color: #c62828;
+}
+
 .toast-container {
     position: fixed;
     top: 20px;

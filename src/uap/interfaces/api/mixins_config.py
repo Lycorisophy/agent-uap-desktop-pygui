@@ -21,6 +21,7 @@ class ConfigApiMixin:
             },
             "llm": llm_dump,
             "llm_presets": llm_provider_presets(),
+            "embedding": self.config.embedding.model_dump(),
             "storage": self.config.storage.model_dump(),
             "config_path": str(local_override_config_path()),
         }
@@ -46,6 +47,26 @@ class ConfigApiMixin:
                     elif v is not None:
                         merged[k] = v
                 self.config.llm = LLMConfig.model_validate(merged)
+
+            if "embedding" in config_updates:
+                from uap.config import EmbeddingConfig
+
+                emb_data = dict(config_updates["embedding"])
+                merged_emb = self.config.embedding.model_dump()
+                for k, v in emb_data.items():
+                    if v is not None:
+                        merged_emb[k] = v
+                self.config.embedding = EmbeddingConfig.model_validate(merged_emb)
+
+            if "storage" in config_updates:
+                from uap.config import StorageConfig
+
+                st_data = dict(config_updates["storage"])
+                merged_st = self.config.storage.model_dump()
+                for k, v in st_data.items():
+                    if v is not None:
+                        merged_st[k] = v
+                self.config.storage = StorageConfig.model_validate(merged_st)
 
             if "prediction_defaults" in config_updates:
                 pd = config_updates["prediction_defaults"]
@@ -82,6 +103,8 @@ class ConfigApiMixin:
                 )
 
             self.project_service.refresh_extractor()
+            if hasattr(self, "knowledge_service"):
+                self.knowledge_service.reset_clients()
 
             _LOG.info(
                 "[API] Config saved to: %s, provider=%s, model=%s",

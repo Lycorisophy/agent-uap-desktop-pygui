@@ -1053,6 +1053,20 @@ wheels = [
 ]
 
 [[package]]
+name = "milvus-lite"
+version = "2.5.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "tqdm", marker = "python_full_version < '3.11' or sys_platform != 'win32'" },
+]
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a9/b2/acc5024c8e8b6a0b034670b8e8af306ebd633ede777dcbf557eac4785937/milvus_lite-2.5.1-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:6b014453200ba977be37ba660cb2d021030375fa6a35bc53c2e1d92980a0c512", size = 27934713, upload-time = "2025-06-30T04:23:37.028Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/9b/2e/746f5bb1d6facd1e73eb4af6dd5efda11125b0f29d7908a097485ca6cad9/milvus_lite-2.5.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:a2e031088bf308afe5f8567850412d618cfb05a65238ed1a6117f60decccc95a", size = 24421451, upload-time = "2025-06-30T04:23:51.747Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/2e/cf/3d1fee5c16c7661cf53977067a34820f7269ed8ba99fe9cf35efc1700866/milvus_lite-2.5.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:a13277e9bacc6933dea172e42231f7e6135bd3bdb073dd2688ee180418abd8d9", size = 45337093, upload-time = "2025-06-30T04:24:06.706Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d3/82/41d9b80f09b82e066894d9b508af07b7b0fa325ce0322980674de49106a0/milvus_lite-2.5.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:25ce13f4b8d46876dd2b7ac8563d7d8306da7ff3999bb0d14b116b30f71d706c", size = 55263911, upload-time = "2025-06-30T04:24:19.434Z" },
+]
+
+[[package]]
 name = "minio"
 version = "7.2.20"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -1995,6 +2009,11 @@ dependencies = [
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/2c/d7/c5d1381248a33975ccc864a0f980f93270ecc35354de8646c8a16443cccb/pymilvus-2.6.12.tar.gz", hash = "sha256:8323e990dc305e607fef525498eb779e42940a69e0691dde009cd02d48845f7a", size = 1584521, upload-time = "2026-04-09T07:49:11.374Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ce/5d/44b0fa94c91503381e6f12298277f84f8e7b0bb00715ab89fc273c4d681e/pymilvus-2.6.12-py3-none-any.whl", hash = "sha256:69051b8b62712f157b2b50aeb7bde7fd7cdb5940aac0122094eb3cd58bc20f0d", size = 315183, upload-time = "2026-04-09T07:49:09.013Z" },
+]
+
+[package.optional-dependencies]
+milvus-lite = [
+    { name = "milvus-lite", marker = "sys_platform != 'win32'" },
 ]
 
 [[package]]
@@ -3196,6 +3215,7 @@ dependencies = [
     { name = "ollama" },
     { name = "openai" },
     { name = "pydantic" },
+    { name = "pymilvus", extra = ["milvus-lite"] },
     { name = "pywebview" },
     { name = "pyyaml" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version < '3.11'" },
@@ -3215,7 +3235,6 @@ legacy-db = [
     { name = "minio" },
     { name = "mysql-connector-python" },
     { name = "neo4j" },
-    { name = "pymilvus" },
     { name = "pymongo" },
     { name = "redis" },
 ]
@@ -3240,7 +3259,7 @@ requires-dist = [
     { name = "ollama", specifier = ">=0.1.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
-    { name = "pymilvus", marker = "extra == 'legacy-db'", specifier = ">=2.3" },
+    { name = "pymilvus", extras = ["milvus-lite"], specifier = ">=2.4.0" },
     { name = "pymongo", marker = "extra == 'legacy-db'", specifier = ">=4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pywebview", specifier = ">=5.0.0" },

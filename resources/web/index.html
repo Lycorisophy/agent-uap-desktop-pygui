@@ -28,6 +28,10 @@
                     <span class="icon">⏰</span>
                     <span>定时预测模式</span>
                 </button>
+                <button class="nav-item" data-view="knowledge">
+                    <span class="icon">📚</span>
+                    <span>项目知识库</span>
+                </button>
                 <button class="nav-item" data-view="settings">
                     <span class="icon">⚙️</span>
                     <span>设置</span>
@@ -235,6 +239,33 @@
                     </div>
                 </div>
             </section>
+            <!-- 项目知识库 -->
+            <section id="knowledgeView" class="view">
+                <div class="view-header">
+                    <h2>项目知识库</h2>
+                    <div class="project-selector">
+                        <select id="kbProjectSelect"><option value="">选择项目...</option></select>
+                    </div>
+                </div>
+                <div class="knowledge-container">
+                    <p class="hint kb-hint">为选中项目建立 Milvus Lite 向量库（IVF_FLAT / COSINE），上传 .txt / .md 导入；嵌入模型在「设置」中配置。</p>
+                    <div class="kb-toolbar">
+                        <button class="btn btn-secondary" id="kbRefreshBtn">刷新状态</button>
+                        <button class="btn btn-primary" id="kbImportBtn">选择文件并导入</button>
+                    </div>
+                    <div class="kb-status" id="kbStatus">
+                        <p class="placeholder">请选择项目后点击「刷新状态」</p>
+                    </div>
+                    <div class="kb-search-block">
+                        <h3>检索试用</h3>
+                        <div class="kb-search-row">
+                            <input type="text" id="kbSearchInput" placeholder="输入查询语句…" class="kb-search-input">
+                            <button class="btn btn-primary" id="kbSearchBtn">搜索</button>
+                        </div>
+                        <div class="kb-search-results" id="kbSearchResults"></div>
+                    </div>
+                </div>
+            </section>
             <!-- 设置视图 -->
             <section id="settingsView" class="view">
                 <div class="view-header"><h2>设置</h2></div>
@@ -267,6 +298,28 @@
                                 <input type="text" id="llmBaseUrl" placeholder="http://localhost:11434 或 https://.../v1">
                             </div>
                             <p class="hint" id="llmPresetHint" style="font-size:0.85rem;color:#666;"></p>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h3>嵌入模型（知识库）</h3>
+                        <p class="hint" style="font-size:0.85rem;color:#666;">用于 Milvus 知识库向量；维度须与 Ollama 嵌入模型输出一致（如 qwen3-embedding:8b 常为 4096）。</p>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>嵌入模型名</label>
+                                <input type="text" id="embedModel" placeholder="qwen3-embedding:8b">
+                            </div>
+                            <div class="form-group">
+                                <label>嵌入服务 Base URL</label>
+                                <input type="text" id="embedBaseUrl" placeholder="留空则与 LLM 相同，如 http://127.0.0.1:11434">
+                            </div>
+                            <div class="form-group">
+                                <label>向量维度</label>
+                                <input type="number" id="embedDimension" min="32" max="32768" step="1" value="4096">
+                            </div>
+                            <div class="form-group">
+                                <label>Milvus Lite 库路径（可选）</label>
+                                <input type="text" id="milvusLitePath" placeholder="留空为 ~/.uap/milvus_lite.db">
+                            </div>
                         </div>
                     </div>
                     <div class="settings-section">

@@ -15,7 +15,11 @@ const state = {
         llmApiKeySet: false,
         llmPresets: {},
         defaultFrequency: 3600,
-        defaultHorizon: 259200
+        defaultHorizon: 259200,
+        embedModel: 'qwen3-embedding:8b',
+        embedBaseUrl: '',
+        embedDimension: 4096,
+        milvusLitePath: ''
     }
 };
 
@@ -141,6 +145,7 @@ async function initializeApp() {
     bindModelingEvents();
     bindPredictionEvents();
     bindSettingsEvents();
+    bindKnowledgeEvents();
     bindModalEvents();
     
     await waitForPywebviewApi();
@@ -176,8 +181,11 @@ function switchView(viewName) {
     state.currentView = viewName;
     
     // 视图特定初始化
-    if (viewName === 'modeling' || viewName === 'prediction') {
+    if (viewName === 'modeling' || viewName === 'prediction' || viewName === 'knowledge') {
         updateProjectSelects();
+    }
+    if (viewName === 'knowledge') {
+        refreshKbStatus();
     }
 }
 
@@ -763,7 +771,7 @@ function renderModelPreviewToPanels(model) {
 }
 
 function updateProjectSelects() {
-    ['modelingProjectSelect', 'predictionProjectSelect'].forEach(selectId => {
+    ['modelingProjectSelect', 'predictionProjectSelect', 'kbProjectSelect'].forEach(selectId => {
         const select = document.getElementById(selectId);
         if (!select) return;
         
@@ -777,6 +785,109 @@ function updateProjectSelects() {
             select.value = state.currentProject.id;
         }
     });
+}
+
+function getKbProjectId() {
+    const sel = document.getElementById('kbProjectSelect');
+    return sel?.value?.trim() || '';
+}
+
+async function refreshKbStatus() {
+    const pid = getKbProjectId();
+    const el = document.getElementById('kbStatus');
+    if (!el) return;
+    if (!pid) {
+        el.innerHTML = '<p class="placeholder">请先选择项目</p>';
+        return;
+    }
+    if (!window.pywebview?.api) return;
+    try {
+        const r = await window.pywebview.api.knowledge_base_status(pid);
+        if (!r.ok) {
+            el.innerHTML = `<p class="error-text">${escapeHtml(r.error || '状态获取失败')}</p>`;
+            return;
+        }
+        const rows = r.row_count != null ? r.row_count : '—';
+        const ex = r.exists ? '已创建' : '未创建';
+        el.innerHTML = `
+            <p><strong>集合</strong>：<code>${escapeHtml(r.collection || '')}</code></p>
+            <p><strong>状态</strong>：${ex}</p>
+            <p><strong>条目数</strong>：${rows}</p>
+        `;
+    } catch (e) {
+        el.innerHTML = `<p class="error-text">${escapeHtml(String(e))}</p>`;
+    }
+}
+
+async function kbPickAndImport() {
+    const pid = getKbProjectId();
+    if (!pid) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+    if (!window.pywebview?.api) return;
+    try {
+        const pick = await window.pywebview.api.knowledge_base_pick_file();
+        if (pick.cancelled) return;
+        if (!pick.success) {
+            showToast(pick.error || '未选择文件', 'error');
+            return;
+        }
+        const path = pick.path;
+        showToast('正在导入…', 'info');
+        const r = await window.pywebview.api.knowledge_base_import(pid, path);
+        if (r.ok) {
+            showToast(`已导入 ${r.chunks || 0} 个分块`, 'success');
+            await refreshKbStatus();
+        } else {
+            showToast(r.error || '导入失败', 'error');
+        }
+    } catch (e) {
+        showToast(String(e), 'error');
+    }
+}
+
+async function kbRunSearch() {
+    const pid = getKbProjectId();
+    const q = document.getElementById('kbSearchInput')?.value?.trim() || '';
+    const out = document.getElementById('kbSearchResults');
+    if (!out) return;
+    if (!pid) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+    if (!q) {
+        showToast('请输入查询', 'warning');
+        return;
+    }
+    if (!window.pywebview?.api) return;
+    try {
+        const r = await window.pywebview.api.knowledge_base_search(pid, q, 5);
+        if (!r.ok) {
+            out.innerHTML = `<p class="error-text">${escapeHtml(r.error || '')}</p>`;
+            return;
+        }
+        const hits = r.hits || [];
+        if (hits.length === 0) {
+            out.innerHTML = '<p class="placeholder">无结果</p>';
+            return;
+        }
+        out.innerHTML = hits.map((h, i) => `
+            <div class="kb-hit">
+                <div class="kb-hit-meta">#${i + 1} · ${escapeHtml(h.source_name || '')} · chunk ${h.chunk_index} · dist ${h.distance != null ? h.distance.toFixed(4) : '—'}</div>
+                <div class="kb-hit-text">${escapeHtml((h.text || '').slice(0, 1200))}</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        out.innerHTML = `<p class="error-text">${escapeHtml(String(e))}</p>`;
+    }
+}
+
+function bindKnowledgeEvents() {
+    document.getElementById('kbRefreshBtn')?.addEventListener('click', () => refreshKbStatus());
+    document.getElementById('kbImportBtn')?.addEventListener('click', () => kbPickAndImport());
+    document.getElementById('kbSearchBtn')?.addEventListener('click', () => kbRunSearch());
+    document.getElementById('kbProjectSelect')?.addEventListener('change', () => refreshKbStatus());
 }
 
 async function sendModelingMessage() {
@@ -1099,6 +1210,8 @@ async function loadSettings() {
                 // 提取LLM配置
                 const llm = config.llm || {};
                 const predDefaults = config.prediction_defaults || {};
+                const emb = config.embedding || {};
+                const storage = config.storage || {};
                 state.settings = {
                     llmProvider: llm.provider || 'ollama',
                     llmModel: llm.model || 'llama3.2',
@@ -1106,7 +1219,11 @@ async function loadSettings() {
                     llmApiKeySet: !!llm.api_key_set,
                     llmPresets: config.llm_presets || {},
                     defaultFrequency: predDefaults.frequency_sec || 3600,
-                    defaultHorizon: predDefaults.horizon_sec || 259200
+                    defaultHorizon: predDefaults.horizon_sec || 259200,
+                    embedModel: emb.model || 'qwen3-embedding:8b',
+                    embedBaseUrl: emb.base_url || '',
+                    embedDimension: emb.dimension != null ? emb.dimension : 4096,
+                    milvusLitePath: storage.milvus_lite_path || ''
                 };
             }
             renderSettings();
@@ -1122,7 +1239,11 @@ function renderSettings() {
         ['llmModel', state.settings.llmModel],
         ['llmBaseUrl', state.settings.llmBaseUrl],
         ['defaultFrequency', state.settings.defaultFrequency],
-        ['defaultHorizon', state.settings.defaultHorizon]
+        ['defaultHorizon', state.settings.defaultHorizon],
+        ['embedModel', state.settings.embedModel],
+        ['embedBaseUrl', state.settings.embedBaseUrl],
+        ['embedDimension', state.settings.embedDimension],
+        ['milvusLitePath', state.settings.milvusLitePath]
     ];
 
     fields.forEach(([id, value]) => {
@@ -1149,8 +1270,19 @@ async function saveSettings() {
     if (apiKey) {
         llm.api_key = apiKey;
     }
+    const embedding = {
+        model: document.getElementById('embedModel')?.value || 'qwen3-embedding:8b',
+        base_url: document.getElementById('embedBaseUrl')?.value?.trim() || '',
+        dimension: parseInt(document.getElementById('embedDimension')?.value || 4096, 10)
+    };
+    const milvusPath = document.getElementById('milvusLitePath')?.value?.trim() || '';
+
     const settings = {
         llm,
+        embedding,
+        storage: {
+            milvus_lite_path: milvusPath
+        },
         prediction_defaults: {
             frequency_sec: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
             horizon_sec: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
@@ -1168,7 +1300,11 @@ async function saveSettings() {
             llmApiKeySet: state.settings.llmApiKeySet || !!apiKey,
             llmPresets: state.settings.llmPresets,
             defaultFrequency: settings.prediction_defaults.frequency_sec,
-            defaultHorizon: settings.prediction_defaults.horizon_sec
+            defaultHorizon: settings.prediction_defaults.horizon_sec,
+            embedModel: embedding.model,
+            embedBaseUrl: embedding.base_url,
+            embedDimension: embedding.dimension,
+            milvusLitePath: milvusPath
         };
         showToast('设置已保存', 'success');
         await loadSettings();

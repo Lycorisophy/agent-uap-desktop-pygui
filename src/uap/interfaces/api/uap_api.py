@@ -13,6 +13,7 @@ from uap.interfaces.api.mixins_config import ConfigApiMixin
 from uap.interfaces.api.mixins_cards import CardsApiMixin
 from uap.interfaces.api.mixins_skills import SkillsApiMixin
 from uap.interfaces.api.mixins_filesystem import FilesystemApiMixin
+from uap.interfaces.api.mixins_knowledge import KnowledgeApiMixin
 
 
 class UAPApi(
@@ -23,6 +24,7 @@ class UAPApi(
     CardsApiMixin,
     SkillsApiMixin,
     FilesystemApiMixin,
+    KnowledgeApiMixin,
 ):
     """``window.pywebview.api`` 暴露的完整方法集。"""
 

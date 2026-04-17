@@ -103,15 +103,24 @@ class LLMConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """嵌入模型配置"""
+    """嵌入模型配置（须与 Ollama 模型输出维度一致）"""
+
     model: str = "qwen3-embedding:8b"
     base_url: str = ""  # 空则使用 llm.base_url
+    dimension: int = Field(
+        default=4096,
+        ge=32,
+        le=32768,
+        description="向量维度，需与嵌入模型一致（如 qwen3-embedding:8b 常见为 4096）",
+    )
 
 
 class StorageConfig(BaseModel):
     """存储配置"""
     # 项目存储根目录，空则使用 ~/.uap/projects
     projects_root: str = ""
+    # Milvus Lite 本地库文件路径，空则使用 ~/.uap/milvus_lite.db
+    milvus_lite_path: str = ""
     
     # MySQL
     mysql_host: str = "localhost"
