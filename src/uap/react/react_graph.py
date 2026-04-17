@@ -71,16 +71,22 @@ def _tool_call_to_name_args(tc0: Any) -> tuple[str, dict[str, Any]]:
 
 
 def _llm_chunks_to_message(chunks: list[AIMessageChunk]) -> AIMessage:
+    """将流式块合并为 AIMessage。
+
+    须保留 ``content`` 为 ``str`` 或块 ``list``（含 ``type:text`` / reasoning），
+    供 ``ReactAgent._assistant_message_plain_text`` 展平；**勿**对 list 使用 ``str()``，
+    否则 ReAct 解析不到 ``Action:``（表现为 ``empty_action``）。
+    """
     if not chunks:
         return AIMessage(content="")
     agg: AIMessageChunk = reduce(add, chunks)
     tc = list(getattr(agg, "tool_calls", None) or [])
-    raw = getattr(agg, "content", "")
-    if isinstance(raw, str):
-        text = raw
-    else:
-        text = str(raw)
-    return AIMessage(content=text, tool_calls=tc)
+    raw = getattr(agg, "content", None)
+    if raw is None:
+        raw = ""
+    if isinstance(raw, (str, list)):
+        return AIMessage(content=raw, tool_calls=tc)
+    return AIMessage(content=str(raw), tool_calls=tc)
 
 
 def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:

@@ -32,7 +32,9 @@ LangGraph 路径经 ``build_llm_user_content`` 可在发送前按 ``ContextCompr
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Optional
@@ -97,6 +99,23 @@ class ReactResult(BaseModel):
     total_duration_ms: int = 0
     tool_calls: int = 0  # 实际工具调用次数（不含纯 FINAL 步）
     dst_state: dict = Field(default_factory=dict, description="DST 状态快照，供前端「建模阶段」展示")
+
+
+def _extract_balanced_json_object(s: str) -> str | None:
+    """从字符串开头起找第一个 ``{`` 并做括号平衡，取出完整 JSON 对象子串。"""
+    i = s.find("{")
+    if i < 0:
+        return None
+    depth = 0
+    for j in range(i, len(s)):
+        c = s[j]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[i : j + 1]
+    return None
 
 
 class ReactAgent:
@@ -411,19 +430,82 @@ class ReactAgent:
 
     @staticmethod
     def _is_react_control_line(stripped: str) -> bool:
+        """与 ``_format_trajectory`` 中英文标签对齐，便于多行 Thought 在「行动：」等处截断。"""
         return bool(
             stripped
             and (
                 stripped.startswith("Thought:")
                 or stripped.startswith("Thought：")
+                or stripped.startswith("思考:")
+                or stripped.startswith("思考：")
                 or stripped.startswith("Action:")
                 or stripped.startswith("Action：")
+                or stripped.startswith("行动:")
+                or stripped.startswith("行动：")
                 or stripped.startswith("Action Input:")
                 or stripped.startswith("Action Input：")
+                or stripped.startswith("行动输入:")
+                or stripped.startswith("行动输入：")
                 or stripped.startswith("FINAL_ANSWER:")
                 or stripped.startswith("FINAL_ANSWER：")
+                or stripped.startswith("最终答案:")
+                or stripped.startswith("最终答案：")
             )
         )
+
+    def _react_apply_parse_fallback(self, plain: str, result: dict) -> None:
+        """当行解析未得到 Action 时，兼容 Markdown 围栏、加粗 ``**Action**`` 等变体。"""
+        if not plain or not plain.strip():
+            return
+        if (result.get("action") or "").strip() == "FINAL_ANSWER":
+            return
+
+        t = plain.strip()
+        if t.startswith("```"):
+            t = re.sub(r"^```[a-zA-Z0-9_-]*\s*\n?", "", t, count=1)
+            t = re.sub(r"\n?```\s*$", "", t, flags=re.DOTALL).strip()
+
+        fa = re.search(
+            r"(?im)(?:^|\n)\s*\*{0,3}\s*(?:FINAL_ANSWER|最终答案)\s*\*{0,3}\s*[:：]\s*(.+?)\s*$",
+            t,
+        )
+        if fa:
+            result["action"] = "FINAL_ANSWER"
+            result["final_answer"] = fa.group(1).strip()
+            return
+
+        if not (result.get("action") or "").strip():
+            ac = re.search(
+                r"(?im)(?:^|\n)\s*\*{0,3}\s*(?:Action|行动)\s*\*{0,3}\s*[:：]\s*(\S+)",
+                t,
+            )
+            if ac:
+                result["action"] = ac.group(1).strip().strip("*").strip()
+
+        if not (result.get("action") or "").strip():
+            return
+
+        # 行解析已带出非空 action_input 时不再覆盖
+        if result.get("action_input"):
+            return
+
+        ai_mark = re.search(r"(?im)(?:Action\s*Input|行动输入)\s*[:：]\s*", t)
+        if not ai_mark:
+            return
+        tail = t[ai_mark.end() :].lstrip()
+        blob = _extract_balanced_json_object(tail)
+        if blob:
+            try:
+                result["action_input"] = json.loads(blob)
+            except (json.JSONDecodeError, TypeError):
+                result["action_input"] = {"raw": blob}
+        else:
+            line0 = tail.split("\n", 1)[0].strip()
+            if line0:
+                try:
+                    result["action_input"] = json.loads(line0)
+                except (json.JSONDecodeError, TypeError):
+                    result["action_input"] = {"raw": line0}
 
     def _parse_llm_response(self, response: Any) -> dict:
         """
@@ -444,15 +526,30 @@ class ReactAgent:
         idx_after_thought = 0
         for i, line in enumerate(lines):
             st = line.strip()
-            if st.startswith("Thought:") or st.startswith("Thought："):
-                sep = "Thought:" if st.startswith("Thought:") else "Thought："
+            thought_pairs = (
+                ("Thought:", "Thought："),
+                ("思考:", "思考："),
+            )
+            matched_thought = None
+            for asc, anc in thought_pairs:
+                if st.startswith(asc):
+                    matched_thought = asc
+                    break
+                if st.startswith(anc):
+                    matched_thought = anc
+                    break
+            if matched_thought:
+                sep = matched_thought
                 first = st[len(sep) :].lstrip()
                 parts: list[str] = [first] if first else []
                 j = i + 1
                 while j < len(lines):
                     st2 = lines[j].strip()
                     if self._is_react_control_line(st2) and not (
-                        st2.startswith("Thought:") or st2.startswith("Thought：")
+                        st2.startswith("Thought:")
+                        or st2.startswith("Thought：")
+                        or st2.startswith("思考:")
+                        or st2.startswith("思考：")
                     ):
                         break
                     parts.append(lines[j])
@@ -466,6 +563,9 @@ class ReactAgent:
             if line.startswith("Action:") or line.startswith("Action："):
                 sep = "Action:" if line.startswith("Action:") else "Action："
                 result["action"] = line[len(sep) :].strip()
+            elif line.startswith("行动:") or line.startswith("行动："):
+                sep = "行动:" if line.startswith("行动:") else "行动："
+                result["action"] = line[len(sep) :].strip()
             elif line.startswith("Action Input:") or line.startswith("Action Input："):
                 sep = (
                     "Action Input:"
@@ -474,8 +574,17 @@ class ReactAgent:
                 )
                 json_str = line[len(sep) :].strip()
                 try:
-                    import json
-
+                    result["action_input"] = json.loads(json_str)
+                except Exception:
+                    result["action_input"] = {"raw": json_str}
+            elif line.startswith("行动输入:") or line.startswith("行动输入："):
+                sep = (
+                    "行动输入:"
+                    if line.startswith("行动输入:")
+                    else "行动输入："
+                )
+                json_str = line[len(sep) :].strip()
+                try:
                     result["action_input"] = json.loads(json_str)
                 except Exception:
                     result["action_input"] = {"raw": json_str}
@@ -487,8 +596,18 @@ class ReactAgent:
                 )
                 result["action"] = "FINAL_ANSWER"
                 result["final_answer"] = line[len(sep) :].strip()
+            elif line.startswith("最终答案:") or line.startswith("最终答案："):
+                sep = (
+                    "最终答案:"
+                    if line.startswith("最终答案:")
+                    else "最终答案："
+                )
+                result["action"] = "FINAL_ANSWER"
+                result["final_answer"] = line[len(sep) :].strip()
             elif line.startswith("ask_user") or "确认" in line or "confirm" in line.lower():
                 result["needs_confirmation"] = True
+
+        self._react_apply_parse_fallback(str(text or ""), result)
 
         _LOG.debug(
             "[ReActAgent] Parsed response: action=%s, needs_confirm=%s",

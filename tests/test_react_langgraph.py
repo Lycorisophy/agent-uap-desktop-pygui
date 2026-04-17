@@ -63,6 +63,101 @@ def test_build_llm_user_content_includes_harness_hints() -> None:
     assert "当前决策轮次" in out and "3" in out
 
 
+def test_parse_llm_response_list_content_blocks() -> None:
+    """与流式聚合一致：content 为块列表时须解析出 Action（勿依赖 str(list)）。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    inner = (
+        "Thought: 需要澄清\n"
+        "Action: ask_user\n"
+        'Action Input: {"question": "请说明时间范围", "options": ["日", "周"]}\n'
+    )
+    msg = AIMessage(content=[{"type": "text", "text": inner}])
+    parsed = agent._parse_llm_response(msg)
+    assert (parsed.get("action") or "").strip() == "ask_user"
+    assert parsed.get("action_input", {}).get("question")
+
+
+def test_parse_llm_response_chinese_action_labels() -> None:
+    """与轨迹区「思考/行动/观察」一致时，模型常输出中文「行动：」须能解析。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    text = (
+        "思考: 需要澄清范围\n"
+        "行动： ask_user\n"
+        '行动输入： {"question": "预测哪项指标？", "options": ["温度", "降水"]}\n'
+    )
+    parsed = agent._parse_llm_response(AIMessage(content=text))
+    assert (parsed.get("action") or "").strip() == "ask_user"
+    assert parsed.get("action_input", {}).get("question")
+
+
+def test_parse_llm_response_markdown_bold_action() -> None:
+    """模型输出 **Action**: 时回退解析仍能得到技能名。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    text = "**Thought**: 追问\n**Action**: ask_user\n**Action Input**: {\"question\": \"q\"}\n"
+    parsed = agent._parse_llm_response(AIMessage(content=text))
+    assert (parsed.get("action") or "").strip() == "ask_user"
+
+
+def test_react_graph_stream_list_content_blocks_parsed() -> None:
+    """decide 流式路径合并块列表后须能走 ask_user，而非 empty_action。"""
+    inner = (
+        "Thought: t\n"
+        "Action: ask_user\n"
+        'Action Input: {"question": "Q", "options": []}\n'
+    )
+    pieces = [AIMessageChunk(content=[{"type": "text", "text": inner}])]
+
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    m.stream = MagicMock(return_value=iter(pieces))
+
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=4,
+        max_time_seconds=60.0,
+        max_ask_user_per_turn=1,
+    )
+    r = agent.run("task", {"_on_llm_token": lambda _: None})
+    assert not any(s.error_message == "empty_action" for s in r.steps)
+    assert r.steps[-1].action == "ask_user"
+
+
 def test_parse_llm_response_multiline_thought() -> None:
     """多行 Thought 与全角冒号 Action：须完整保留思考文本。"""
     m = MagicMock(spec=BaseChatModel)
