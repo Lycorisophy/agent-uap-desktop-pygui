@@ -193,13 +193,18 @@ class AgentConfig(BaseModel):
     """
     **八大行动模式**相关运行时参数（当前仓库以 ReAct 为主）。
 
-    - ``react_max_steps_default``：与 ``ReactAgent.max_iterations`` 语义类似，
-      供上层在创建 Agent 时作为默认安全预算（可在 service 层覆盖）。
+    - ``react_max_steps_default``：与 ``ReactAgent.max_iterations`` 语义相同，
+      建模 ReAct 单次用户发送内最大 LLM 决策轮数；范围 1–32，默认 8。
     - ``builtin_scheduler_enabled``：定时预测与后台任务，属 **环境 Harness**，
       与对话式行动模式正交。
     - ``modeling_agent_mode``：未传每轮 ``mode`` 时的默认（``react`` / ``plan`` / ``auto``）。
     """
-    react_max_steps_default: int = Field(default=12, ge=1, le=200)
+    react_max_steps_default: int = Field(
+        default=8,
+        ge=1,
+        le=32,
+        description="建模 ReAct 单次会话最大决策轮数（与设置页一致，1–32）",
+    )
     react_max_time_seconds: float = Field(
         default=300.0,
         ge=30.0,
@@ -234,6 +239,15 @@ class AgentConfig(BaseModel):
     modeling_win11_fs_skills_enabled: bool = Field(
         default=True,
         description="为建模 ReAct/Plan 注册 win11_* 项目内文件读写删改移技能",
+    )
+    react_max_ask_user_per_turn: int = Field(
+        default=1,
+        ge=1,
+        le=20,
+        description=(
+            "单次 modeling_chat 内允许连续 ask_user 的次数；达到后图结束，等待用户在下一条消息中回复。"
+            "默认 1 表示首轮追问后即结束本轮（HITL），避免同轮无用户输入的死循环追问。"
+        ),
     )
 
 

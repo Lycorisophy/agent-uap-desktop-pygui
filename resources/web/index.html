@@ -334,6 +334,11 @@
                                 <input type="number" id="modelingIntentContextRounds" min="0" max="20" step="1" value="2">
                             </div>
                             <div class="form-group">
+                                <label>ReAct 最大决策轮数（单次用户发送内，默认 8）</label>
+                                <input type="number" id="reactMaxStepsDefault" min="1" max="32" step="1" value="8">
+                                <p class="hint" style="font-size:0.85rem;color:#666;">LLM 每轮输出 Thought→Action，系统执行后观察写入历史；达到上限或超时后本轮结束。</p>
+                            </div>
+                            <div class="form-group">
                                 <label><input type="checkbox" id="classifierUseSeparate"> 使用独立分类模型（不勾选则与上方主 LLM 完全相同）</label>
                             </div>
                             <div class="form-group">

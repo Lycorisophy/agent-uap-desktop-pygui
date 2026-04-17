@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any, Optional
 
 from uap.config import LLMConfig, UapConfig
@@ -657,12 +658,17 @@ class ProjectService:
             )
 
         react_max_time = float(getattr(self._cfg.agent, "react_max_time_seconds", 300.0) or 300.0)
+        max_ask_user = int(getattr(self._cfg.agent, "react_max_ask_user_per_turn", 1) or 1)
+        max_ask_user = max(1, min(20, max_ask_user))
+        react_max_steps = int(getattr(self._cfg.agent, "react_max_steps_default", 8) or 8)
+        react_max_steps = max(1, min(32, react_max_steps))
         react_agent = ReactAgent(
             chat_model=chat_model,
             skills_registry=skills_registry,
             dst_manager=dst_manager,
-            max_iterations=15,
+            max_iterations=react_max_steps,
             max_time_seconds=react_max_time,
+            max_ask_user_per_turn=max_ask_user,
             compression_config=self._cfg.context_compression,
             knowledge_service=self._knowledge,
         )
@@ -696,6 +702,7 @@ class ProjectService:
             "dst_state": result.dst_state,
             "pending_card": pending_card,
             "success": result.success,
+            "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
         }
 
@@ -805,6 +812,7 @@ class ProjectService:
         mode: str | None = None,
         intent_scene: dict | None = None,
         original_user_message: str | None = None,
+        on_llm_token: Optional[Callable[[str], None]] = None,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
@@ -812,6 +820,7 @@ class ProjectService:
         Args:
             mode: ``react`` | ``plan`` | ``auto``；为 ``None`` 或空时使用 ``UapConfig.agent.modeling_agent_mode``。
             original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
+            on_llm_token: 可选；ReAct ``decide`` 中 LLM 流式输出时按文本片段回调（用于前端轮询拉流）。
         """
         try:
             project = self._store.get_project(project_id)
@@ -819,6 +828,8 @@ class ProjectService:
             context = self._modeling_context_dict(project_id, project)
             if intent_scene:
                 context.update(intent_scene)
+            if on_llm_token is not None:
+                context["_on_llm_token"] = on_llm_token
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"
@@ -1099,6 +1110,13 @@ class ProjectService:
 
     def _generate_response_message(self, result: Any, model: Optional[SystemModel]) -> str:
         """生成面向用户的响应消息（成功摘要 / 失败时中文说明 + 上下文摘录）。"""
+        if getattr(result, "pending_user_input", False):
+            parts = [
+                "已向您提出问题，请在「下一条消息」中直接回复或选择选项，以便继续建模。"
+            ]
+            self._append_last_ask_user_excerpt(result, parts)
+            return "\n\n".join(parts)
+
         if result.success and model:
             parts: list[str] = []
             if model.variables:

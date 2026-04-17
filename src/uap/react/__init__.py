@@ -49,7 +49,7 @@ def create_react_agent(
     chat_model,
     skills_registry: dict | None = None,
     dst_manager: DstManager | None = None,
-    max_iterations: int = 10,
+    max_iterations: int = 8,
     max_time_seconds: float = 120.0,
     compression_config=None,
     knowledge_service=None,

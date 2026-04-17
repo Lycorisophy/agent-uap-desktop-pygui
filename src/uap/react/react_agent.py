@@ -82,6 +82,10 @@ class ReactResult(BaseModel):
     """
 
     success: bool  # 是否以 FINAL_ANSWER 正常结束（提前超时/异常则为 False）
+    pending_user_input: bool = Field(
+        default=False,
+        description="本轮以 ask_user 结束且等待用户在下一条消息中回复（HITL）",
+    )
     session_id: str  # 与 DST、卡片、项目日志关联的主键
     steps: list[ReactStep] = Field(default_factory=list)
     final_output: Any = None  # 最后一轮产出摘要或观察
@@ -108,8 +112,9 @@ class ReactAgent:
         chat_model: BaseChatModel,
         skills_registry: dict[str, AtomicSkill],
         dst_manager,
-        max_iterations: int = 10,
+        max_iterations: int = 8,
         max_time_seconds: float = 120.0,
+        max_ask_user_per_turn: int = 1,
         compression_config: Optional[ContextCompressionConfig] = None,
         knowledge_service: Any = None,
     ):
@@ -122,6 +127,7 @@ class ReactAgent:
             dst_manager: **对话状态 / 上下文工程**侧：建模阶段与槽位填充进度
             max_iterations: 单会话最大推理-行动轮数（防止死循环与费用爆炸）
             max_time_seconds:  wall-clock 超时，与迭代上限二选一先触发者为准
+            max_ask_user_per_turn: 单次 ``run`` 内允许的成功 ``ask_user`` 次数，达到后图结束等待用户下一条消息。
             compression_config: 为 ``None`` 时不压缩（等价于 ``ContextCompressionConfig(enabled=False)``）。
             knowledge_service: 可选 ``ProjectKnowledgeService``，用于截断片段异步入库。
         """
@@ -130,6 +136,7 @@ class ReactAgent:
         self.dst = dst_manager
         self.max_iterations = max_iterations
         self.max_time = max_time_seconds
+        self.max_ask_user_per_turn = max(1, int(max_ask_user_per_turn or 1))
         self.compression_config = (
             compression_config
             if compression_config is not None
@@ -189,11 +196,18 @@ class ReactAgent:
         total_duration = int((time.perf_counter() - start_time) * 1000)
 
         success = len(steps) > 0 and steps[-1].action == "FINAL_ANSWER"
+        pending_user_input = bool(
+            steps
+            and steps[-1].action == "ask_user"
+            and not steps[-1].is_error
+            and not success
+        )
 
         self.dst.complete_session(session_id, steps[-1].observation if steps else None)
 
         result = ReactResult(
             success=success,
+            pending_user_input=pending_user_input,
             session_id=session_id,
             steps=steps,
             final_output=steps[-1].observation if steps else None,
@@ -287,7 +301,7 @@ class ReactAgent:
         ingest = None
         if self.knowledge_service is not None:
             ingest = self.knowledge_service.ingest_truncation_fragments
-        return run_compression_pipeline(
+        body = run_compression_pipeline(
             parts,
             self.compression_config,
             self.chat_model,
@@ -296,6 +310,24 @@ class ReactAgent:
             llm_round=llm_round,
             step_id=step_id,
             knowledge_ingest=ingest,
+        )
+        return body + self._react_harness_instructions(llm_round)
+
+    def _react_harness_instructions(self, llm_round: int) -> str:
+        """编排层说明：与 LangGraph 停止条件对齐，附在压缩后的用户提示末尾。"""
+        t = float(self.max_time)
+        t_str = str(int(t)) if t == int(t) else f"{t:.1f}"
+        return (
+            "\n\n---\n"
+            "## 行动模式与编排约束（系统注入）\n"
+            "- 当前为 **ReAct**：你输出 Thought → Action → Action Input；"
+            "系统执行技能后把观察写入上文的「最近执行历史」。\n"
+            f"- **当前决策轮次**（本轮 LLM 调用序号）为 {int(llm_round)}；"
+            f"**最大决策轮数**为 {int(self.max_iterations)}。"
+            "超过上限时编排器会结束本会话（可能向用户提示已达步数上限）。\n"
+            f"- **墙钟超时**约为 {t_str} 秒；与轮数上限**先触发者**为准。\n"
+            f"- 成功执行 **ask_user** 累计达到 {int(self.max_ask_user_per_turn)} 次后，"
+            "本轮图运行会结束并等待用户**下一条消息**，请勿假设同轮内会继续自动追问。\n"
         )
 
     def _format_trajectory(
@@ -408,7 +440,11 @@ class ReactAgent:
 
         if skill_id == "ask_user":
             q = params.get("question") or params.get("raw") or str(params)
-            return f"（追问用户）{q}", False, None
+            return (
+                "（已向用户展示上述追问；请用户在下一条消息中直接回复或选择选项，"
+                "本轮对话已暂停等待输入。）\n"
+                f"（追问用户）{q}"
+            ), False, None
 
         skill = self.skills.get(skill_id)
         if not skill:

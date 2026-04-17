@@ -21,6 +21,7 @@ const state = {
         embedDimension: 4096,
         milvusLitePath: '',
         modelingIntentContextRounds: 2,
+        reactMaxStepsDefault: 8,
         classifyUseSeparate: false,
         classifyProvider: 'ollama',
         classifyModel: '',
@@ -124,6 +125,46 @@ function isPywebviewApiCallable() {
         typeof api.list_projects === 'function' &&
         typeof api.get_config === 'function'
     );
+}
+
+/** 建模 LLM 流式轮询（后台线程 + hub）；旧版 exe 无此方法时回退 ``modeling_chat``。 */
+function isModelingStreamApiAvailable() {
+    const api = window.pywebview?.api;
+    return !!(
+        api &&
+        typeof api.start_modeling_chat_stream === 'function' &&
+        typeof api.poll_modeling_chat_stream === 'function'
+    );
+}
+
+function removeModelingStreamLiveBubbles() {
+    document.querySelectorAll('.message.assistant.modeling-stream-live').forEach((el) => {
+        el.remove();
+    });
+}
+
+function appendModelingStreamLiveBubble(streamId) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'message assistant modeling-stream-live';
+    wrap.dataset.uapStreamId = String(streamId || '');
+    const timeStr = formatTime(new Date().toISOString());
+    wrap.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+            <div class="message-text modeling-stream-text" style="white-space: pre-wrap;"></div>
+            <div class="modeling-stream-hint">正在生成回复…</div>
+            <div class="message-time">${escapeHtml(timeStr)}</div>
+        </div>
+    `;
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+    return wrap.querySelector('.modeling-stream-text');
+}
+
+async function uapSleepMs(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -1494,15 +1535,96 @@ async function sendModelingMessage() {
         if (isPywebviewApiCallable()) {
             const modeSelect = document.getElementById('modelingModeSelect');
             const mode = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
-            let response;
-            try {
-                response = await window.pywebview.api.modeling_chat(
-                    state.currentProject.id,
-                    message,
-                    mode
-                );
-            } finally {
-                removeLoadingMessage(loadingId);
+            let response = null;
+            if (isModelingStreamApiAvailable()) {
+                let startResp;
+                try {
+                    startResp = await window.pywebview.api.start_modeling_chat_stream(
+                        state.currentProject.id,
+                        message,
+                        mode
+                    );
+                } catch (e) {
+                    removeLoadingMessage(loadingId);
+                    throw e;
+                }
+                if (!startResp || !startResp.ok || !startResp.stream_id) {
+                    removeLoadingMessage(loadingId);
+                    const err =
+                        (startResp && (startResp.error || startResp.message)) ||
+                        '无法启动建模流';
+                    showToast(String(err), 'error');
+                    await appendAssistantTypewriter(String(err), new Date().toISOString());
+                    return;
+                }
+                const sid = startResp.stream_id;
+                let streamTextEl = null;
+                let streamBuf = '';
+                for (;;) {
+                    const pr = await window.pywebview.api.poll_modeling_chat_stream(sid);
+                    if (!pr) {
+                        await uapSleepMs(100);
+                        continue;
+                    }
+                    const batch = Array.isArray(pr.tokens) ? pr.tokens.join('') : '';
+                    if (batch) {
+                        if (!streamTextEl) {
+                            removeLoadingMessage(loadingId);
+                            streamTextEl = appendModelingStreamLiveBubble(sid);
+                        }
+                        streamBuf += batch;
+                        if (streamTextEl) {
+                            streamTextEl.textContent = streamBuf;
+                        }
+                        const c = document.getElementById('chatMessages');
+                        if (c) c.scrollTop = c.scrollHeight;
+                    }
+                    if (pr.done) {
+                        if (!streamTextEl) {
+                            removeLoadingMessage(loadingId);
+                        }
+                        removeModelingStreamLiveBubbles();
+                        const res = pr.result;
+                        if (!pr.ok) {
+                            const em = pr.error || '建模流异常';
+                            showToast(String(em), 'error');
+                            await appendAssistantTypewriter(
+                                String(em),
+                                new Date().toISOString()
+                            );
+                            renderModelingProcessPanel({ ok: false, steps: [], success: false });
+                        } else if (res && res.ok) {
+                            response = res;
+                        } else {
+                            const em =
+                                pr.error ||
+                                (res && res.message != null ? String(res.message) : '') ||
+                                '建模失败';
+                            await appendAssistantTypewriter(em, new Date().toISOString());
+                            renderModelingProcessPanel({
+                                ok: false,
+                                steps: (res && res.steps) || [],
+                                success: false
+                            });
+                            if (res && res.dst_state) {
+                                syncModelingDstPanel(res.dst_state);
+                            }
+                            switchAgentTab('process');
+                        }
+                        break;
+                    }
+                    await uapSleepMs(90);
+                }
+            } else {
+                try {
+                    response = await window.pywebview.api.modeling_chat(
+                        state.currentProject.id,
+                        message,
+                        mode
+                    );
+                } finally {
+                    removeLoadingMessage(loadingId);
+                }
             }
             await uapYieldToPaint();
             if (response && response.ok) {
@@ -1846,6 +1968,8 @@ async function loadSettings() {
                     ag.modeling_intent_context_rounds != null
                         ? ag.modeling_intent_context_rounds
                         : 2,
+                reactMaxStepsDefault:
+                    ag.react_max_steps_default != null ? ag.react_max_steps_default : 8,
                 classifyUseSeparate: hasClassifier,
                 classifyProvider: (hasClassifier && cl.provider) || llm.provider || 'ollama',
                 classifyModel: (hasClassifier && cl.model) || llm.model || '',
@@ -1880,6 +2004,7 @@ function renderSettings() {
         ['embedDimension', state.settings.embedDimension],
         ['milvusLitePath', state.settings.milvusLitePath],
         ['modelingIntentContextRounds', state.settings.modelingIntentContextRounds],
+        ['reactMaxStepsDefault', state.settings.reactMaxStepsDefault],
         ['classifyLlmProvider', state.settings.classifyProvider],
         ['classifyLlmModel', state.settings.classifyModel],
         ['classifyLlmBaseUrl', state.settings.classifyBaseUrl]
@@ -1931,8 +2056,16 @@ async function saveSettings() {
         10
     );
     const modeling_intent_context_rounds = Math.max(0, Math.min(20, Number.isFinite(roundsRaw) ? roundsRaw : 2));
+    const stepsRaw = parseInt(
+        document.getElementById('reactMaxStepsDefault')?.value || '8',
+        10
+    );
+    const react_max_steps_default = Math.max(
+        1,
+        Math.min(32, Number.isFinite(stepsRaw) ? stepsRaw : 8)
+    );
     const useClsSep = document.getElementById('classifierUseSeparate')?.checked;
-    const agent = { modeling_intent_context_rounds };
+    const agent = { modeling_intent_context_rounds, react_max_steps_default };
     if (!useClsSep) {
         agent.modeling_classifier_llm = null;
     } else {
@@ -1987,6 +2120,7 @@ async function saveSettings() {
             embedDimension: embedding.dimension,
             milvusLitePath: milvusPath,
             modelingIntentContextRounds: agent.modeling_intent_context_rounds,
+            reactMaxStepsDefault: agent.react_max_steps_default,
             classifyUseSeparate: !!useClsSep && !!agent.modeling_classifier_llm,
             classifyProvider:
                 agent.modeling_classifier_llm?.provider || settings.llm.provider,
