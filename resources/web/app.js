@@ -1157,6 +1157,24 @@ function syncVariableRowFromDom(idx) {
     });
 }
 
+/** 变量改名后，将关系中的果变量、因变量列表里对旧名的引用改为新名 */
+function applyVariableRenameToRelations(oldName, newName) {
+    const o = String(oldName || '').trim();
+    const n = String(newName || '').trim();
+    if (!o || !n || o === n) return;
+    const rels = state.editingModel?.relations;
+    if (!Array.isArray(rels)) return;
+    for (const r of rels) {
+        if (!r) continue;
+        if (String(r.effect_var || '').trim() === o) {
+            r.effect_var = n;
+        }
+        if (Array.isArray(r.cause_vars)) {
+            r.cause_vars = r.cause_vars.map((c) => (String(c || '').trim() === o ? n : c));
+        }
+    }
+}
+
 function renderVariableEditorTable() {
     const mount = document.getElementById('modelVariableEditorMount');
     if (!mount) return;
@@ -1211,11 +1229,19 @@ function renderVariableEditorTable() {
     mount.querySelectorAll('input[data-vfield],select[data-vfield]').forEach((el) => {
         el.addEventListener('change', () => {
             const tr = el.closest('tr[data-var-idx]');
-            if (tr) {
-                syncVariableRowFromDom(Number(tr.dataset.varIdx));
-                renderRelationEditorTable();
-                refreshModelEditorGraph();
+            if (!tr) return;
+            const idx = Number(tr.dataset.varIdx);
+            const v = state.editingModel.variables[idx];
+            const oldName = String(v?.name || '').trim();
+            syncVariableRowFromDom(idx);
+            if (el.dataset.vfield === 'name' && oldName) {
+                const newName = String(v?.name || '').trim();
+                if (newName && oldName !== newName) {
+                    applyVariableRenameToRelations(oldName, newName);
+                }
             }
+            renderRelationEditorTable();
+            refreshModelEditorGraph();
         });
     });
 

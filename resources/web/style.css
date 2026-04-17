@@ -1039,6 +1039,20 @@ select {
     width: 100%;
     height: auto;
     max-height: 280px;
+    touch-action: none;
+    user-select: none;
+}
+
+.model-graph-mount .mg-bg-pan {
+    cursor: grab;
+}
+
+.model-graph-mount .model-graph-node {
+    cursor: grab;
+}
+
+.model-graph-mount .model-graph-node.mg-dragging {
+    cursor: grabbing;
 }
 
 .model-graph-toolbar {
