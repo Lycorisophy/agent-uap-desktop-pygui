@@ -146,6 +146,7 @@ class ReactAgent:
             else ContextCompressionConfig(enabled=False)
         )
         self.knowledge_service = knowledge_service
+        self._harness_context: dict = {}
 
         self._lc_tools = atomic_skills_to_lc_tools(skills_registry)
         from uap.react.react_graph import compile_react_graph
@@ -169,6 +170,7 @@ class ReactAgent:
         session_id = str(uuid.uuid4())
         start_time = time.perf_counter()
         context = context or {}
+        self._harness_context = dict(context)
 
         _LOG.info("[ReActAgent] Starting session: %s, task: %s", session_id, task[:100])
 
@@ -504,6 +506,12 @@ class ReactAgent:
             (observation, is_error, error_message) —— observation 将回到下一轮 **上下文工程**。
         """
         _LOG.info("[ReActAgent] Executing skill: %s with params: %s", skill_id, params)
+
+        params = dict(params or {})
+        hc = getattr(self, "_harness_context", None) or {}
+        for k in ("project_workspace",):
+            if k in hc and k not in params:
+                params[k] = hc[k]
 
         if skill_id == "ask_user":
             q = params.get("question") or params.get("raw") or str(params)

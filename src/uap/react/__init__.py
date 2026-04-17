@@ -67,12 +67,10 @@ def create_react_agent(
     Returns:
         ReactAgent 实例
     """
-    from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+    from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
     if skills_registry is None:
-        skills = {
-            sid: AtomicSkill(meta) for sid, meta in get_atomic_skills_library().items()
-        }
+        skills = dict(build_modeling_atomic_registry())
     else:
         skills = skills_registry
     dst = dst_manager or DstManager()

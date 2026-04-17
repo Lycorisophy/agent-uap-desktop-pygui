@@ -572,6 +572,20 @@ class ProjectService:
                     f"（跨会话 DST 摘要：阶段={agg.get('current_stage')}，"
                     f"变量键={vpart}，关系键={rpart}）"
                 )
+        from pathlib import Path as _Path
+
+        _pd = _Path(project.folder_path or project.workspace or "")
+        if not str(_pd) or not _pd.is_dir():
+            _pd = user_workspace_dir(project_id)
+            _pd.mkdir(parents=True, exist_ok=True)
+        if not _pd.is_dir():
+            try:
+                _pd = self._store.resolve_project_directory(project_id)
+            except FileNotFoundError:
+                _pd = user_workspace_dir(project_id)
+                _pd.mkdir(parents=True, exist_ok=True)
+        if _pd.is_dir():
+            out["project_workspace"] = str(_pd.resolve())
         return out
 
     def _decide_mode_by_task(self, task: str, context: dict, chat_model) -> str:
@@ -646,13 +660,11 @@ class ProjectService:
         )
         from uap.react.file_access_skill import create_file_access_skill
         from uap.react.project_kb_skill import create_search_knowledge_skill
-        from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+        from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
         _LOG.info("[Modeling/ReAct] project=%s msg=%s", project_id, user_message[:50])
         dst_manager = DstManager()
-        skills_registry: dict[str, AtomicSkill] = {}
-        for skill_id, skill_meta in get_atomic_skills_library().items():
-            skills_registry[skill_id] = AtomicSkill(skill_meta)
+        skills_registry: dict = dict(build_modeling_atomic_registry())
         if web_search_func:
             skills_registry["web_search"] = create_web_search_skill(web_search_func)
         skills_registry["extract_model"] = self._create_model_extraction_skill()
@@ -778,13 +790,11 @@ class ProjectService:
         from uap.react import DstManager, ReactCardIntegration, create_web_search_skill
         from uap.react.file_access_skill import create_file_access_skill
         from uap.react.project_kb_skill import create_search_knowledge_skill
-        from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+        from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
         _LOG.info("[Modeling/Plan] project=%s", project_id)
         dst_manager = DstManager()
-        skills_registry: dict[str, AtomicSkill] = {}
-        for skill_id, skill_meta in get_atomic_skills_library().items():
-            skills_registry[skill_id] = AtomicSkill(skill_meta)
+        skills_registry: dict = dict(build_modeling_atomic_registry())
         if web_search_func:
             skills_registry["web_search"] = create_web_search_skill(web_search_func)
         skills_registry["extract_model"] = self._create_model_extraction_skill()

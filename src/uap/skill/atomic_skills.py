@@ -622,20 +622,45 @@ def get_skill_chain_recommendations(task_type: str) -> list[list[str]]:
     Returns:
         推荐的技能链列表
     """
+    from uap.skill.atomic_implemented import MODELING_ATOMIC_SKILL_IDS
+
+    def _only_implemented(chain: list[str]) -> list[str]:
+        return [s for s in chain if s in MODELING_ATOMIC_SKILL_IDS]
+
     recommendations = {
         "forecast": [
-            ["data_load_csv", "preprocess_missing", "feature_delay_embedding", "model_koopman_dmd", "postprocess_trajectory", "viz_trajectory"],
-            ["data_load_csv", "preprocess_missing", "model_monte_carlo", "postprocess_confidence", "viz_trajectory"]
+            _only_implemented(
+                [
+                    "data_load_csv",
+                    "preprocess_missing",
+                    "preprocess_normalize",
+                    "feature_derivative",
+                    "model_monte_carlo",
+                ]
+            ),
+            _only_implemented(
+                ["data_load_csv", "preprocess_missing", "model_monte_carlo"]
+            ),
         ],
         "anomaly_detection": [
-            ["data_load_csv", "preprocess_outlier", "feature_entropy", "postprocess_anomaly"],
+            _only_implemented(
+                ["data_load_csv", "preprocess_missing", "preprocess_normalize", "feature_derivative"]
+            ),
         ],
         "uncertainty_quantification": [
-            ["data_load_csv", "model_monte_carlo", "postprocess_confidence", "viz_heatmap"]
+            _only_implemented(["data_load_csv", "model_monte_carlo"]),
         ],
         "modeling": [
-            ["data_load_csv", "preprocess_missing", "preprocess_normalize", "feature_delay_embedding", "model_koopman_edmd"]
-        ]
+            _only_implemented(
+                [
+                    "data_load_csv",
+                    "preprocess_missing",
+                    "preprocess_normalize",
+                    "preprocess_resample",
+                    "feature_derivative",
+                ]
+            ),
+        ],
     }
-    
-    return recommendations.get(task_type, [])
+
+    return [c for c in recommendations.get(task_type, []) if c]

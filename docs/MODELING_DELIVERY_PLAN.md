@@ -20,7 +20,7 @@
 **推荐回归命令（CI / 本地）：**
 
 ```bash
-pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py -q
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py tests/test_atomic_implemented_registry.py -q
 ```
 
 ---
@@ -134,6 +134,22 @@ render(
 | `model` | object? | `SystemModel` 序列化；可与 `modeling_substantive` 交叉核对。 |
 | `dst_state` | object | DST 快照（阶段、变量键名列表等）。 |
 | `mode_used` / `mode_requested` | string | 实际使用模式与请求模式（`auto` 时可能不同）。 |
+
+### 建模可用原子技能（已实现并注册）
+
+ReAct/Plan 建模路径仅注册带执行器的子集（见 `uap.skill.atomic_implemented`），避免模型调用未实现工具。其余条目仍在 `get_atomic_skills_library()` 元数据库中，供文档与扩展。
+
+| `skill_id` | 说明 |
+|------------|------|
+| `data_load_csv` | 读项目工作区内 CSV，返回列名与行预览（有 `project_workspace` 时校验路径）。 |
+| `data_load_json` | 读本地 JSON 文件，返回结构摘要。 |
+| `preprocess_missing` | 对二维数值矩阵按 `method` 做缺失填补（mean/forward/backward/linear/spline≈linear）。 |
+| `preprocess_normalize` | `minmax` / `zscore` 列标准化。 |
+| `preprocess_resample` | 按 `frequency`（如数字目标长度或 `n:120`）对序列线性重采样。 |
+| `feature_derivative` | 列方向 `np.diff`。 |
+| `model_monte_carlo` | 简化随机游走：`model.initial_state`、`model.n_steps`、`num_samples` 等。 |
+
+另：建模注入工具（`extract_model`、`file_access`、`ask_user` 等）不在上表，与原子库并列注册。
 
 ---
 

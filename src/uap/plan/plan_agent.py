@@ -155,6 +155,7 @@ class PlanAgent:
         self.max_replans = max_replans
         self.max_time = max_time_seconds
         self.enable_parallel = enable_parallel
+        self._harness_context: dict = {}
         self._lc_tools = atomic_skills_to_lc_tools(skills_registry)
         from uap.plan.plan_graph import compile_plan_graph
 
@@ -164,6 +165,7 @@ class PlanAgent:
         session_id = str(uuid.uuid4())
         start = time.perf_counter()
         context = context or {}
+        self._harness_context = dict(context)
         pid = (context.get("project_id") or "").strip()
         dst_session = self.dst.create_session(session_id, task, context, project_id=pid)
 
@@ -361,6 +363,11 @@ class PlanAgent:
 
     def _execute_skill(self, skill_id: str, params: dict) -> tuple[str, bool, Optional[str]]:
         _LOG.info("[PlanAgent] Executing skill: %s params=%s", skill_id, params)
+        params = dict(params or {})
+        hc = getattr(self, "_harness_context", None) or {}
+        for k in ("project_workspace",):
+            if k in hc and k not in params:
+                params[k] = hc[k]
         if skill_id == "ask_user":
             q = params.get("question") or params.get("raw") or str(params)
             return f"（追问用户）{q}", False, None

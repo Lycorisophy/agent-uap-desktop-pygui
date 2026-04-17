@@ -36,6 +36,10 @@ from uap.skill.atomic_skills import (
     get_skills_by_category,
     get_skill_chain_recommendations,
 )
+from uap.skill.atomic_implemented import (
+    MODELING_ATOMIC_SKILL_IDS,
+    build_modeling_atomic_registry,
+)
 
 
 def create_skill_manager(
@@ -136,6 +140,8 @@ __all__ = [
     "get_atomic_skills_library",
     "get_skills_by_category",
     "get_skill_chain_recommendations",
+    "MODELING_ATOMIC_SKILL_IDS",
+    "build_modeling_atomic_registry",
     # 快捷函数
     "create_skill_manager",
     "create_modeling_executor",
