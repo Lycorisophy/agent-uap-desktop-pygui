@@ -99,15 +99,25 @@ class ProjectsApiMixin:
             )
             self.project_store.save_messages(project_id, messages)
 
-            _LOG.info("[API] Calling react_modeling (ReAct mode)...")
-            result = self.project_service.react_modeling(
-                project_id=project_id,
-                user_message=message,
-                card_manager=self.card_manager,
-                web_search_func=self._get_web_search_func(),
-            )
+            mode = (self.config.agent.modeling_agent_mode or "react").strip().lower()
+            if mode == "plan":
+                _LOG.info("[API] Calling plan_modeling (Plan mode)...")
+                result = self.project_service.plan_modeling(
+                    project_id=project_id,
+                    user_message=message,
+                    card_manager=self.card_manager,
+                    web_search_func=self._get_web_search_func(),
+                )
+            else:
+                _LOG.info("[API] Calling react_modeling (ReAct mode)...")
+                result = self.project_service.react_modeling(
+                    project_id=project_id,
+                    user_message=message,
+                    card_manager=self.card_manager,
+                    web_search_func=self._get_web_search_func(),
+                )
             _LOG.info(
-                "[API] react_modeling result: ok=%s, success=%s",
+                "[API] modeling result: ok=%s, success=%s",
                 result.get("ok"),
                 result.get("success"),
             )
@@ -117,12 +127,17 @@ class ProjectsApiMixin:
 
                 steps_info = ""
                 if result.get("steps"):
-                    steps_info = f"\n\n[ReAct执行: {len(result['steps'])}步]"
+                    label = "Plan" if (self.config.agent.modeling_agent_mode or "").strip().lower() == "plan" else "ReAct"
+                    steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
                     for step in result["steps"][-3:]:
                         if step.get("thought"):
                             steps_info += f"\n- 思考: {step['thought'][:50]}..."
                         if step.get("action") and step.get("action") != "FINAL_ANSWER":
                             steps_info += f"\n  行动: {step['action']}"
+                        if step.get("description"):
+                            steps_info += f"\n- 步骤: {step['description'][:60]}..."
+                        if step.get("tool_name"):
+                            steps_info += f"\n  工具: {step['tool_name']}"
 
                 dst_info = ""
                 dst_state = result.get("dst_state", {})

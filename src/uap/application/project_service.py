@@ -3,8 +3,8 @@ ProjectService —— **领域编排层**（介于 Harness ``UAPApi`` 与存储 
 ================================================================================
 
 典型链路：
-- **建模**：``modeling_chat`` / ``react_modeling`` —— 组装 LLM、ReAct、技能注册表、
-  DST、卡片（**RADH = ReAct + DST + HITL**）。
+- **建模**：``modeling_chat`` / ``react_modeling`` / ``plan_modeling`` —— 组装 LLM、
+  ReAct 或 Plan 模式、技能注册表、DST、卡片（**RADH** 以 ReAct 为主路径）。
 - **记忆**：对话 JSON、系统模型文件经 ``ProjectStore``；可选向量检索在 API/服务扩展。
 - **提示词/上下文**：ReAct 主模板在 ``uap.prompts``；本服务负责 **注入业务事实**
   （含 ``system_model`` 文本摘要与 ``existing_model`` dict）。
@@ -693,6 +693,122 @@ class ProjectService:
         except Exception as e:
             _LOG.exception("[ReactModeling] Error: %s", str(e))
             return {"ok": False, "error": f"ReAct建模异常: {str(e)}"}
+
+    def plan_modeling(
+        self,
+        project_id: str,
+        user_message: str,
+        card_manager=None,
+        web_search_func=None,
+    ) -> dict:
+        """
+        **Plan 模式建模**：先由 LLM 产出 JSON 步骤列表，再顺序执行；失败时在 ``max_replans`` 内重规划。
+
+        与 ``react_modeling`` 共用技能注册表、DST、卡片与落盘逻辑；返回 ``plan`` 为 ``PlanStep`` 字典列表。
+        """
+        try:
+            from uap.plan import PlanAgent
+            from uap.react import DstManager, ReactCardIntegration, create_web_search_skill
+            from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
+
+            project = self._store.get_project(project_id)
+            _LOG.info("[PlanModeling] Starting: project=%s", project_id)
+
+            dst_manager = DstManager()
+            chat_model = create_langchain_chat_model(self._cfg.llm)
+
+            skills_registry: dict[str, AtomicSkill] = {}
+            for skill_id, skill_meta in get_atomic_skills_library().items():
+                skills_registry[skill_id] = AtomicSkill(skill_meta)
+            if web_search_func:
+                skills_registry["web_search"] = create_web_search_skill(web_search_func)
+            skills_registry["extract_model"] = self._create_model_extraction_skill()
+            skills_registry["define_variable"] = self._create_variable_definition_skill()
+            skills_registry["discover_relations"] = self._create_relation_discovery_skill()
+
+            from pathlib import Path
+
+            from uap.react.file_access_skill import create_file_access_skill
+
+            proj_dir = Path(project.folder_path or project.workspace or "")
+            if not str(proj_dir) or not proj_dir.is_dir():
+                proj_dir = user_workspace_dir(project_id)
+                proj_dir.mkdir(parents=True, exist_ok=True)
+            if not proj_dir.is_dir():
+                proj_dir = self._store.resolve_project_directory(project_id)
+            skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
+
+            plan_agent = PlanAgent(
+                chat_model=chat_model,
+                skills_registry=skills_registry,
+                dst_manager=dst_manager,
+                max_replans=3,
+                max_time_seconds=300.0,
+                enable_parallel=False,
+            )
+
+            card_integration = None
+            if card_manager:
+                card_integration = ReactCardIntegration(card_manager)
+
+            existing = (
+                project.system_model.model_dump() if project.system_model else None
+            )
+            context = {
+                "project_id": project_id,
+                "project_name": project.name,
+                "existing_model": existing,
+                "system_model": format_system_model_for_prompt(project.system_model)
+                if project.system_model
+                else "",
+            }
+
+            result = plan_agent.run(user_message, context)
+
+            model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
+            pending_card = None
+            if model and card_integration and (model.variables or model.relations):
+                card_id = card_integration.create_model_confirm_card(
+                    session_id=result.session_id,
+                    project_id=project_id,
+                    variables=[v.model_dump() for v in model.variables],
+                    relations=[r.model_dump() for r in model.relations],
+                    constraints=model.constraints or [],
+                )
+                pending_card = card_id
+
+            if model:
+                project.system_model = model
+                project.status = ProjectStatus.MODELING
+                project = self._store.update_project(project)
+                self._store.save_model(project_id, model)
+
+            plan_dump = [p.model_dump() for p in result.plan]
+            tool_calls = sum(
+                1
+                for st in result.plan
+                if st.tool_name
+                and str(getattr(st.status, "value", st.status)) == "completed"
+            )
+
+            return {
+                "ok": True,
+                "message": self._generate_response_message(result, model),
+                "model": model.model_dump() if model else None,
+                "session_id": result.session_id,
+                "steps": plan_dump,
+                "plan": plan_dump,
+                "dst_state": result.dst_state,
+                "pending_card": pending_card,
+                "success": result.success,
+                "tool_calls": tool_calls,
+                "replan_count": result.replan_count,
+            }
+        except FileNotFoundError:
+            return {"ok": False, "error": "项目不存在"}
+        except Exception as e:
+            _LOG.exception("[PlanModeling] Error: %s", str(e))
+            return {"ok": False, "error": f"Plan建模异常: {str(e)}"}
 
     def _create_model_extraction_skill(self):
         """创建模型提取技能"""

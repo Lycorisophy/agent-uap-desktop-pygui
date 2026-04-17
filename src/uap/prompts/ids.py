@@ -11,6 +11,9 @@ class PromptId(str, Enum):
 
     REACT_DECISION_USER = "react_decision_user"
 
+    PLAN_GENERATION_USER = "plan_generation_user"
+    PLAN_REPLAN_USER = "plan_replan_user"
+
     SKILL_GENERATION_SYSTEM = "skill_generation_system"
     SKILL_GENERATION_USER = "skill_generation_user"
     SKILL_VALIDATION_USER = "skill_validation_user"
