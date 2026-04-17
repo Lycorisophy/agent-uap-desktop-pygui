@@ -204,14 +204,29 @@ class AgentConfig(BaseModel):
 
 class ContextCompressionConfig(BaseModel):
     """
-    **上下文工程**：在提示词发送前做预算与压缩（占位，供未来接入摘要链）。
+    **上下文工程**：在 ReAct ``decide`` 调用 LLM 前做预算、删除、分级摘要与截断。
 
     - ``context_token_budget``：单请求目标 token 上限（与模型窗口、成本联动）。
-    - ``pre_send_threshold``：达到预算的多少比例时触发压缩策略（如摘要历史）。
+    - ``pre_send_threshold``：估算 token 达到该比例时触发压缩流水线。
+    - ``truncation_marker``：硬截断后拼在上下文中的占位符（可配置为 ``<截断>`` 等）。
     """
     enabled: bool = True
     context_token_budget: int = Field(default=32000, ge=4096, le=500000)
     pre_send_threshold: float = Field(default=0.85, ge=0.3, le=0.99)
+    truncation_marker: str = Field(default="[[UAP_TRUNCATED]]", max_length=64)
+    max_trajectory_steps: int = Field(default=8, ge=1, le=200)
+    trajectory_thought_max_chars: int = Field(default=400, ge=50, le=8000)
+    trajectory_observation_max_chars: int = Field(default=400, ge=50, le=8000)
+    summarize_max_tokens_per_call: int = Field(default=512, ge=64, le=4096)
+    enable_llm_summarization: bool = Field(default=True)
+    enable_redaction: bool = Field(default=True)
+    enable_async_truncation_kb: bool = Field(default=True)
+    summarization_min_priority: int = Field(
+        default=2,
+        ge=2,
+        le=5,
+        description="仅对 priority>=该值的片段调用 LLM 摘要（2=system_model 起，5=仅 trajectory）",
+    )
 
 
 class UapConfig(BaseModel):

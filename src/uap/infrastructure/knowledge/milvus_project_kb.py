@@ -232,6 +232,56 @@ class ProjectKnowledgeService:
             "collection": name,
         }
 
+    def ingest_truncation_fragments(self, project_id: str, fragments: list[dict[str, Any]]) -> None:
+        """
+        将上下文截断掉的尾部文本分块写入当前项目 collection（与文件导入共用 schema）。
+
+        ``fragments`` 每项建议含 ``text``、``segment``、``session_id``、``llm_round``、``step_id``。
+        """
+        if not fragments:
+            return
+        pid = (project_id or "").strip()
+        if not pid:
+            return
+
+        self.ensure_collection(pid)
+        name = collection_name(pid)
+        cli = self._get_client()
+        rows: list[dict[str, Any]] = []
+        row_idx = 0
+
+        for frag in fragments:
+            raw = (frag.get("text") or "").strip()
+            if not raw:
+                continue
+            meta = f"seg={frag.get('segment','')}|r={frag.get('llm_round','')}|step={frag.get('step_id','')}"
+            sid = str(frag.get("session_id") or "")[:80]
+            base_src = f"uap_trunc|{sid}|{meta}"[:500]
+            prefixed = "[UAP:context_truncation]\n" + raw
+            chunks = _chunk_text(prefixed)
+            for ch in chunks:
+                vec = self._embed(ch)
+                piece = ch[:TEXT_MAX_LEN]
+                src = f"{base_src}|c{row_idx}"[:512]
+                rows.append(
+                    {
+                        "project_id": pid,
+                        "source_name": src,
+                        "chunk_index": row_idx,
+                        "text": piece,
+                        "vector": vec,
+                    }
+                )
+                row_idx += 1
+
+        if not rows:
+            return
+        cli.insert(collection_name=name, data=rows)
+        try:
+            cli.flush(name)
+        except Exception:
+            _LOG.debug("flush optional after truncation ingest")
+
     def search(self, project_id: str, query: str, top_k: int = 5) -> dict[str, Any]:
         q = (query or "").strip()
         if not q:

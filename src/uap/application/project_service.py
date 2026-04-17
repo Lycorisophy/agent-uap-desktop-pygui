@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from uap.config import LLMConfig, UapConfig
+from uap.infrastructure.knowledge import ProjectKnowledgeService
 from uap.infrastructure.llm import ModelExtractor
 from uap.infrastructure.llm.factory import create_llm_chat_client
 from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
@@ -62,6 +63,7 @@ class ProjectService:
         """
         self._store = store
         self._cfg = cfg
+        self._knowledge = ProjectKnowledgeService(cfg)
         from uap.infrastructure.llm.model_extractor import ModelExtractor
 
         try:
@@ -625,6 +627,8 @@ class ProjectService:
                 dst_manager=dst_manager,
                 max_iterations=15,
                 max_time_seconds=180.0,
+                compression_config=self._cfg.context_compression,
+                knowledge_service=self._knowledge,
             )
 
             # 5. 创建卡片集成

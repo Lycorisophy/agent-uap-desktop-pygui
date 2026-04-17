@@ -43,6 +43,8 @@ def create_react_agent(
     dst_manager: DstManager | None = None,
     max_iterations: int = 10,
     max_time_seconds: float = 120.0,
+    compression_config=None,
+    knowledge_service=None,
 ) -> ReactAgent:
     """
     创建 ReAct Agent 快捷函数
@@ -73,6 +75,8 @@ def create_react_agent(
         dst_manager=dst,
         max_iterations=max_iterations,
         max_time_seconds=max_time_seconds,
+        compression_config=compression_config,
+        knowledge_service=knowledge_service,
     )
 
 

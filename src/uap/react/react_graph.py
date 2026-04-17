@@ -106,7 +106,15 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         extra = state.get("extra_context") or {}
         dst_session = state["dst_session"]
 
-        ctx = agent._build_context(task, extra, dst_session, steps)
+        ctx = agent.build_llm_user_content(
+            task,
+            extra,
+            dst_session,
+            steps,
+            session_id=state["session_id"],
+            llm_round=rounds,
+            step_id=step_id,
+        )
         _LOG.debug("[react_graph] decide round=%d step_id=%d", rounds, step_id)
 
         try:

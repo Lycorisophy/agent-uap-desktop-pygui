@@ -19,9 +19,9 @@ UAP ReAct Agent —— 「八大行动模式」中的 ReAct 实现层
 `SkillSession.actions`；长期记忆应由 `project_store` 消息、`vector`/`history`
 等模块负责（见 `config.MemoryConfig`）。
 
-**提示词工程**：`_build_context` 使用 ``uap.prompts`` 资产 ``react_decision_user.md`` 拼装
-「系统任务 + DST 摘要 + 技能目录 + 轨迹」的单一 user 消息；修改输出格式时需同步
-`_parse_llm_response`。
+**提示词工程**：``build_context_parts`` / ``render_parts`` 与 ``react_decision_user.md`` 对齐；
+LangGraph 路径经 ``build_llm_user_content`` 可在发送前按 ``ContextCompressionConfig`` 压缩。
+修改输出格式时需同步 ``_parse_llm_response``。
 
 **运行时**：底层编排由 **LangGraph**（``compile_react_graph``）驱动；LangChain
 ``BaseChatModel`` 负责推理与 ``bind_tools``。
@@ -41,10 +41,16 @@ from typing import Any, Optional
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
+from uap.config import ContextCompressionConfig
 from uap.skill.models import SkillSession
 from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
-from uap.prompts import PromptId, render
+from uap.react.context_compression import (
+    ReactContextParts,
+    empty_react_context_parts,
+    render_parts,
+    run_compression_pipeline,
+)
 from uap.react.context_helpers import format_system_model_for_prompt
 from uap.react.lc_tools import atomic_skills_to_lc_tools
 
@@ -105,6 +111,8 @@ class ReactAgent:
         dst_manager,
         max_iterations: int = 10,
         max_time_seconds: float = 120.0,
+        compression_config: Optional[ContextCompressionConfig] = None,
+        knowledge_service: Any = None,
     ):
         """
         初始化 ReAct Agent。
@@ -115,12 +123,20 @@ class ReactAgent:
             dst_manager: **对话状态 / 上下文工程**侧：建模阶段与槽位填充进度
             max_iterations: 单会话最大推理-行动轮数（防止死循环与费用爆炸）
             max_time_seconds:  wall-clock 超时，与迭代上限二选一先触发者为准
+            compression_config: 为 ``None`` 时不压缩（等价于 ``ContextCompressionConfig(enabled=False)``）。
+            knowledge_service: 可选 ``ProjectKnowledgeService``，用于截断片段异步入库。
         """
         self.chat_model = chat_model
         self.skills = skills_registry
         self.dst = dst_manager
         self.max_iterations = max_iterations
         self.max_time = max_time_seconds
+        self.compression_config = (
+            compression_config
+            if compression_config is not None
+            else ContextCompressionConfig(enabled=False)
+        )
+        self.knowledge_service = knowledge_service
 
         self._lc_tools = atomic_skills_to_lc_tools(skills_registry)
         from uap.react.react_graph import compile_react_graph
@@ -213,20 +229,33 @@ class ReactAgent:
 
         若启用 RAG，上层应把检索片段写入 ``extra_context`` 再调用 ``run``。
         """
+        parts = self.build_context_parts(
+            task, extra_context, dst_session, completed_steps
+        )
+        return render_parts(parts)
+
+    def build_context_parts(
+        self,
+        task: str,
+        extra_context: dict,
+        dst_session: SkillSession,
+        completed_steps: list[ReactStep] | None = None,
+    ) -> ReactContextParts:
+        """拼装可压缩的结构化上下文（与 ``react_decision_user.md`` 占位符对齐）。"""
         completed_steps = completed_steps or []
+        cfg = self.compression_config
+        if not cfg.enabled:
+            max_steps, t_cap, o_cap = 5, 200, 200
+        else:
+            max_steps = int(cfg.max_trajectory_steps)
+            t_cap = int(cfg.trajectory_thought_max_chars)
+            o_cap = int(cfg.trajectory_observation_max_chars)
+
+        parts = empty_react_context_parts()
+        parts.task = (task or "").strip()
 
         skills_desc = self._format_skills_list()
-
-        trajectory = ""
-        for step in completed_steps[-5:]:
-            trajectory += f"\nStep {step.step_id}:\n"
-            trajectory += f"思考: {step.thought[:200]}\n"
-            trajectory += f"行动: {step.action}\n"
-            if step.observation:
-                trajectory += f"观察: {step.observation[:200]}\n"
-            if step.is_error:
-                trajectory += f"错误: {step.error_message}\n"
-
+        trajectory = self._format_trajectory(completed_steps, max_steps, t_cap, o_cap)
         dst_summary = self._format_dst_summary(dst_session)
 
         system_model = (extra_context.get("system_model") or "").strip()
@@ -235,14 +264,60 @@ class ReactAgent:
             if em:
                 system_model = format_system_model_for_prompt(em)
 
-        return render(
-            PromptId.REACT_DECISION_USER,
-            task=task,
-            system_model=system_model,
-            dst_summary=dst_summary,
-            skills_desc=skills_desc,
-            trajectory=trajectory,
+        parts.system_model = system_model
+        parts.dst_summary = dst_summary
+        parts.skills_desc = skills_desc
+        parts.trajectory = trajectory
+        return parts
+
+    def build_llm_user_content(
+        self,
+        task: str,
+        extra_context: dict,
+        dst_session: SkillSession,
+        completed_steps: list[ReactStep] | None,
+        session_id: str,
+        llm_round: int,
+        step_id: int,
+    ) -> str:
+        """供 LangGraph ``decide`` 使用：在预算内渲染，必要时走压缩流水线。"""
+        parts = self.build_context_parts(
+            task, extra_context, dst_session, completed_steps
         )
+        ingest = None
+        if self.knowledge_service is not None:
+            ingest = self.knowledge_service.ingest_truncation_fragments
+        return run_compression_pipeline(
+            parts,
+            self.compression_config,
+            self.chat_model,
+            project_id=(extra_context or {}).get("project_id"),
+            session_id=session_id,
+            llm_round=llm_round,
+            step_id=step_id,
+            knowledge_ingest=ingest,
+        )
+
+    def _format_trajectory(
+        self,
+        completed_steps: list[ReactStep],
+        max_steps: int,
+        thought_cap: int,
+        obs_cap: int,
+    ) -> str:
+        if not completed_steps:
+            return ""
+        tail = completed_steps[-max_steps:]
+        lines: list[str] = []
+        for step in tail:
+            lines.append(f"\nStep {step.step_id}:\n")
+            lines.append(f"思考: {step.thought[:thought_cap]}\n")
+            lines.append(f"行动: {step.action}\n")
+            if step.observation:
+                lines.append(f"观察: {step.observation[:obs_cap]}\n")
+            if step.is_error and step.error_message:
+                lines.append(f"错误: {step.error_message}\n")
+        return "".join(lines)
 
     def _format_skills_list(self) -> str:
         """格式化技能列表"""
