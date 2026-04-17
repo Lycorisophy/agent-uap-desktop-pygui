@@ -8,6 +8,7 @@ const state = {
     currentView: 'projects',
     projects: [],
     currentProject: null,
+    editingModel: null,
     settings: {
         llmProvider: 'ollama',
         llmModel: 'llama3.2',
@@ -73,6 +74,7 @@ window.uapAPI = {
         updateProjectSelects();
         if (state.currentView === 'modeling') {
             renderModelPreview(project.model);
+            void loadModelEditorFromApi();
         }
         showToast('项目已加载', 'success');
     },
@@ -88,6 +90,7 @@ window.uapAPI = {
             state.currentProject.model = model;
         }
         renderModelPreview(model);
+        void loadModelEditorFromApi();
     },
     
     // 预测结果回调
@@ -261,6 +264,7 @@ async function initializeApp() {
     bindSettingsEvents();
     bindKnowledgeEvents();
     bindModalEvents();
+    bindModelEditorEvents();
     
     const apiReady = await waitForPywebviewApi();
     await loadProjects();
@@ -304,6 +308,28 @@ function switchView(viewName) {
     }
     if (viewName === 'knowledge') {
         refreshKbStatus();
+    }
+    if (viewName === 'prediction') {
+        refreshPredictionPanelFromHistory();
+    }
+}
+
+async function refreshPredictionPanelFromHistory() {
+    const vm = window.visManager;
+    if (!state.currentProject || !isPywebviewApiCallable()) {
+        if (vm && vm.renderAnalysisResults) vm.renderAnalysisResults(null, 'predictionAnalysis');
+        return;
+    }
+    try {
+        const res = await window.pywebview.api.get_prediction_results(state.currentProject.id, 1, 0);
+        const items = res && Array.isArray(res.items) ? res.items : [];
+        if (items.length) {
+            renderPredictionResults(items[0], { prepend: false });
+        } else {
+            renderPredictionResults(null);
+        }
+    } catch (e) {
+        console.warn('[UAP] refreshPredictionPanelFromHistory', e);
     }
 }
 
@@ -1031,9 +1057,236 @@ async function refreshModelPreview() {
     }
     
     renderModelPreviewToPanels(state.currentProject?.model);
+    await loadModelEditorFromApi();
 }
 
 window.refreshModelPreview = refreshModelPreview;
+
+function bindModelEditorEvents() {
+    const addBtn = document.getElementById('addRelationRowBtn');
+    const saveBtn = document.getElementById('saveModelEditorBtn');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            addEmptyRelationRow();
+        });
+    }
+    if (saveBtn) {
+        saveBtn.addEventListener('click', () => {
+            void saveModelFromEditor();
+        });
+    }
+}
+
+function validateEditingModel(model) {
+    const names = new Set((model.variables || []).map((v) => v.name).filter(Boolean));
+    if (!names.size) {
+        return '模型中没有变量，无法保存关系（请先在建模对话中提取变量）';
+    }
+    let i = 0;
+    for (const r of model.relations || []) {
+        i += 1;
+        const ev = String(r.effect_var || '').trim();
+        if (!ev) {
+            return `第 ${i} 条关系：果变量不能为空`;
+        }
+        if (!names.has(ev)) {
+            return `第 ${i} 条关系：果变量「${ev}」不在变量列表中`;
+        }
+        const causes = Array.isArray(r.cause_vars) ? r.cause_vars : [];
+        for (const c of causes) {
+            if (c && !names.has(c)) {
+                return `第 ${i} 条关系：因变量「${c}」不在变量列表中`;
+            }
+        }
+    }
+    return null;
+}
+
+function syncRelationRowFromDom(idx) {
+    const mount = document.getElementById('modelRelationEditorMount');
+    if (!mount || !state.editingModel || !state.editingModel.relations[idx]) return;
+    const tr = mount.querySelector(`tr[data-rel-idx="${idx}"]`);
+    if (!tr) return;
+    const r = state.editingModel.relations[idx];
+    tr.querySelectorAll('[data-field]').forEach((inp) => {
+        const f = inp.dataset.field;
+        if (f === 'cause_vars') {
+            r.cause_vars = inp.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+        } else if (f === 'confidence') {
+            const n = parseFloat(inp.value);
+            r.confidence = Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.8;
+        } else if (f === 'relation_type') {
+            r.relation_type = inp.value;
+        } else if (f === 'effect_var') {
+            r.effect_var = inp.value;
+        } else if (f === 'name' || f === 'expression' || f === 'description') {
+            r[f] = inp.value;
+        }
+    });
+}
+
+function renderRelationEditorTable() {
+    const mount = document.getElementById('modelRelationEditorMount');
+    if (!mount) return;
+    if (!state.editingModel) {
+        mount.innerHTML = '<p class="placeholder">请打开项目并刷新模型</p>';
+        return;
+    }
+    const rels = state.editingModel.relations || [];
+    const types = ['equation', 'differential', 'causal', 'correlation'];
+    const varNames = (state.editingModel.variables || []).map((v) => v.name).filter(Boolean);
+
+    const effectVarSelect = (r, idx) => {
+        if (!varNames.length) {
+            return `<input type="text" data-field="effect_var" value="${escapeHtml(r.effect_var || '')}" placeholder="变量名" />`;
+        }
+        const opts = varNames
+            .map(
+                (n) =>
+                    `<option value="${escapeHtml(n)}" ${r.effect_var === n ? 'selected' : ''}>${escapeHtml(n)}</option>`,
+            )
+            .join('');
+        return `<select data-field="effect_var">${opts}</select>`;
+    };
+
+    if (!rels.length) {
+        mount.innerHTML = '<p class="hint">暂无关系，可点击「添加关系」</p>';
+        return;
+    }
+
+    mount.innerHTML = `
+        <table class="model-relation-editor-table">
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>果变量</th>
+                    <th>因变量（逗号分隔）</th>
+                    <th>表达式</th>
+                    <th>置信度</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rels
+                    .map(
+                        (r, idx) => `
+                <tr data-rel-idx="${idx}">
+                    <td><input type="text" data-field="name" value="${escapeHtml(r.name || '')}" /></td>
+                    <td>
+                        <select data-field="relation_type">
+                            ${types
+                                .map(
+                                    (t) =>
+                                        `<option value="${t}" ${r.relation_type === t ? 'selected' : ''}>${t}</option>`,
+                                )
+                                .join('')}
+                        </select>
+                    </td>
+                    <td>${effectVarSelect(r, idx)}</td>
+                    <td><input type="text" data-field="cause_vars" value="${escapeHtml((r.cause_vars || []).join(', '))}" placeholder="a, b" /></td>
+                    <td><input type="text" data-field="expression" value="${escapeHtml(r.expression || '')}" /></td>
+                    <td><input type="number" data-field="confidence" step="0.01" min="0" max="1" value="${r.confidence != null ? r.confidence : 0.8}" /></td>
+                    <td><button type="button" class="btn-icon del-rel-btn" data-idx="${idx}" title="删除">✕</button></td>
+                </tr>`,
+                    )
+                    .join('')}
+            </tbody>
+        </table>`;
+
+    mount.querySelectorAll('input[data-field],select[data-field]').forEach((el) => {
+        el.addEventListener('change', () => {
+            const tr = el.closest('tr[data-rel-idx]');
+            if (tr) syncRelationRowFromDom(Number(tr.dataset.relIdx));
+        });
+    });
+
+    mount.onclick = (e) => {
+        const btn = e.target.closest('.del-rel-btn');
+        if (!btn || !state.editingModel) return;
+        const idx = Number(btn.dataset.idx);
+        if (!Number.isFinite(idx)) return;
+        state.editingModel.relations.splice(idx, 1);
+        renderRelationEditorTable();
+    };
+}
+
+function addEmptyRelationRow() {
+    if (!state.editingModel) {
+        showToast('请先加载模型（刷新侧栏「系统模型」）', 'warning');
+        return;
+    }
+    if (!state.editingModel.relations) state.editingModel.relations = [];
+    const firstVar = (state.editingModel.variables || [])[0];
+    const defaultEffect = firstVar ? firstVar.name : '';
+    state.editingModel.relations.push({
+        id: `rel_${Date.now().toString(36)}`,
+        name: '新关系',
+        description: '',
+        relation_type: 'equation',
+        expression: '',
+        cause_vars: [],
+        effect_var: defaultEffect,
+        confidence: 0.8,
+    });
+    renderRelationEditorTable();
+}
+
+async function loadModelEditorFromApi() {
+    const mount = document.getElementById('modelRelationEditorMount');
+    if (!mount) return;
+    if (!state.currentProject || !isPywebviewApiCallable()) {
+        state.editingModel = null;
+        mount.innerHTML = '<p class="placeholder">请打开项目</p>';
+        return;
+    }
+    try {
+        const m = await window.pywebview.api.get_model(state.currentProject.id);
+        if (!m) {
+            state.editingModel = null;
+            mount.innerHTML = '<p class="placeholder">暂无模型数据</p>';
+            return;
+        }
+        state.editingModel = JSON.parse(JSON.stringify(m));
+        if (!state.editingModel.relations) state.editingModel.relations = [];
+        renderRelationEditorTable();
+    } catch (e) {
+        console.error('[UAP] loadModelEditorFromApi', e);
+        mount.innerHTML = '<p class="error-text">加载模型失败</p>';
+    }
+}
+
+async function saveModelFromEditor() {
+    if (!state.currentProject || !state.editingModel) {
+        showToast('没有可保存的模型', 'warning');
+        return;
+    }
+    const mount = document.getElementById('modelRelationEditorMount');
+    if (mount) {
+        (state.editingModel.relations || []).forEach((_, idx) => {
+            syncRelationRowFromDom(idx);
+        });
+    }
+    const err = validateEditingModel(state.editingModel);
+    if (err) {
+        showToast(err, 'warning');
+        return;
+    }
+    try {
+        const res = await window.pywebview.api.save_model(state.currentProject.id, state.editingModel);
+        if (res && res.success) {
+            showToast('模型已保存', 'success');
+            state.currentProject.model = state.editingModel;
+            renderModelPreview(state.currentProject.model);
+            renderModelPreviewToPanels(state.currentProject.model);
+        } else {
+            showToast((res && res.error) || '保存失败', 'error');
+        }
+    } catch (e) {
+        console.error('[UAP] saveModelFromEditor', e);
+        showToast('保存失败', 'error');
+    }
+}
 
 // 渲染模型到面板
 function renderModelPreviewToPanels(model) {
@@ -2263,7 +2516,12 @@ function formatPredictionDateTime(isoString) {
     return date.toLocaleString('zh-CN');
 }
 
-function renderPredictionResults(result) {
+/**
+ * @param {object|null} result — PredictionResult 序列化对象
+ * @param {{ prepend?: boolean }} [options] — prepend=false 时覆盖列表（用于历史刷新）
+ */
+function renderPredictionResults(result, options = {}) {
+    const prepend = options.prepend !== false;
     const resultsList = document.getElementById('resultsList');
     if (typeof window.visManager !== 'undefined' && window.visManager) {
         if (result && window.visManager.buildPredictionTrajectorySvg) {
@@ -2272,6 +2530,16 @@ function renderPredictionResults(result) {
                 window.visManager.renderTrajectory(svg);
             } else {
                 window.visManager.renderEmpty('暂无轨迹数据');
+            }
+        } else if (!result) {
+            window.visManager.renderEmpty('暂无预测数据');
+        }
+        if (window.visManager.renderAnalysisResults) {
+            if (result && typeof window.buildPredictionAnalysisFromResult === 'function') {
+                const ar = window.buildPredictionAnalysisFromResult(result);
+                window.visManager.renderAnalysisResults(ar || {}, 'predictionAnalysis');
+            } else {
+                window.visManager.renderAnalysisResults(null, 'predictionAnalysis');
             }
         }
     }
@@ -2297,7 +2565,7 @@ function renderPredictionResults(result) {
         return `<span class="anomaly-tag">${escapeHtml(label)}</span>`;
     });
 
-    resultsList.innerHTML = `
+    const block = `
         <div class="prediction-result">
             <div class="result-header">
                 <span class="result-time">${escapeHtml(formatPredictionDateTime(created))}</span>
@@ -2313,7 +2581,8 @@ function renderPredictionResults(result) {
                 </div>
             ` : ''}
         </div>
-    ` + resultsList.innerHTML;
+    `;
+    resultsList.innerHTML = prepend ? block + resultsList.innerHTML : block;
 }
 
 // ==================== 设置功能 ====================

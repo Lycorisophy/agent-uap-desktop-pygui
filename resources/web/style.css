@@ -945,6 +945,83 @@ select {
     display: inline-block;
 }
 
+.prediction-analysis-wrap {
+    margin-bottom: 16px;
+}
+
+.prediction-analysis-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: var(--text-primary, #1e293b);
+}
+
+.prediction-analysis {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: stretch;
+}
+
+.prediction-analysis .analysis-card {
+    flex: 1 1 240px;
+    min-width: 200px;
+}
+
+.model-editor-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.model-editor-title {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+}
+
+.model-editor-hint {
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.model-relation-editor-mount {
+    max-height: 280px;
+    overflow: auto;
+    margin-bottom: 10px;
+}
+
+.model-relation-editor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.model-relation-editor-table th,
+.model-relation-editor-table td {
+    border: 1px solid var(--border-color);
+    padding: 4px 6px;
+    vertical-align: middle;
+}
+
+.model-relation-editor-table th {
+    background: var(--bg-color);
+    text-align: left;
+}
+
+.model-relation-editor-table input,
+.model-relation-editor-table select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    font-size: 12px;
+}
+
+.model-editor-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .chart-placeholder {
     color: var(--text-muted);
     font-size: 14px;

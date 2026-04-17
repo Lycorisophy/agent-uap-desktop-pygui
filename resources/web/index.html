@@ -213,6 +213,15 @@
                                         <div class="empty-state">尚未定义约束</div>
                                     </div>
                                 </div>
+                                <div class="model-editor-section" id="modelEditorSection">
+                                    <h5 class="model-editor-title">关系编辑（高级）</h5>
+                                    <p class="hint model-editor-hint">保存将写入 <code>model.json</code>；果变量与因变量须已出现在上方变量列表中。</p>
+                                    <div id="modelRelationEditorMount" class="model-relation-editor-mount"></div>
+                                    <div class="model-editor-actions">
+                                        <button type="button" class="btn btn-secondary btn-sm" id="addRelationRowBtn">添加关系</button>
+                                        <button type="button" class="btn btn-primary btn-sm" id="saveModelEditorBtn">保存模型</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -260,6 +269,10 @@
                     <div class="prediction-results">
                         <h3>预测结果</h3>
                         <div class="results-chart" id="resultsChart"><div class="chart-placeholder"><p>暂无预测数据</p></div></div>
+                        <div class="prediction-analysis-wrap">
+                            <h4 class="prediction-analysis-title">分析指标</h4>
+                            <div id="predictionAnalysis" class="prediction-analysis"></div>
+                        </div>
                         <div class="results-list" id="resultsList"></div>
                     </div>
                 </div>

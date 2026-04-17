@@ -29,35 +29,54 @@ class VisualizationManager {
         `;
     }
 
-    // 渲染分析结果
-    renderAnalysisResults(results) {
-        const container = document.getElementById('resultsList');
+    /**
+     * 渲染分析结果（熵/湍流/异常摘要）
+     * @param {object} results — buildPredictionAnalysisFromResult 的输出
+     * @param {string} [containerId='predictionAnalysis']
+     */
+    renderAnalysisResults(results, containerId = 'predictionAnalysis') {
+        const container = document.getElementById(containerId);
         if (!container) return;
+
+        if (!results || typeof results !== 'object') {
+            container.innerHTML = '<p class="placeholder">暂无分析指标</p>';
+            return;
+        }
 
         let html = '';
 
-        // 熵值分析
         if (results.entropy) {
             html += this._renderEntropyCard(results.entropy);
         }
 
-        // 湍流度
         if (results.turbulence) {
             html += this._renderTurbulenceCard(results.turbulence);
         }
 
-        // 异常摘要
         if (results.anomalies) {
             html += this._renderAnomalySummary(results.anomalies);
         }
 
-        container.innerHTML = html || '<p class="placeholder">暂无分析结果</p>';
+        container.innerHTML = html || '<p class="placeholder">暂无分析指标</p>';
     }
 
     _renderEntropyCard(entropy) {
-        const level = entropy.predictability > 0.7 ? 'low' : entropy.predictability > 0.4 ? 'medium' : 'high';
+        const p = typeof entropy.predictability === 'number' ? entropy.predictability : 0.5;
+        const level = p > 0.7 ? 'low' : p > 0.4 ? 'medium' : 'high';
         const color = level === 'low' ? '#10b981' : level === 'medium' ? '#f59e0b' : '#ef4444';
         const label = level === 'low' ? '可预测' : level === 'medium' ? '中等可预测' : '高不确定性';
+        const perm =
+            entropy.permutation != null && Number.isFinite(Number(entropy.permutation))
+                ? Number(entropy.permutation).toFixed(3)
+                : 'N/A';
+        const samp =
+            entropy.sample != null && Number.isFinite(Number(entropy.sample))
+                ? Number(entropy.sample).toFixed(3)
+                : 'N/A';
+        const raw =
+            entropy.raw_entropy != null && Number.isFinite(Number(entropy.raw_entropy))
+                ? Number(entropy.raw_entropy).toFixed(4)
+                : 'N/A';
 
         return `
             <div class="analysis-card entropy-card">
@@ -71,12 +90,16 @@ class VisualizationManager {
                         <span class="metric-value" style="color: ${color}">${label}</span>
                     </div>
                     <div class="metric-row">
+                        <span>标量熵（引擎）:</span>
+                        <span class="metric-value">${raw}</span>
+                    </div>
+                    <div class="metric-row">
                         <span>排列熵:</span>
-                        <span class="metric-value">${entropy.permutation?.toFixed(3) || 'N/A'}</span>
+                        <span class="metric-value">${perm}</span>
                     </div>
                     <div class="metric-row">
                         <span>样本熵:</span>
-                        <span class="metric-value">${entropy.sample?.toFixed(3) || 'N/A'}</span>
+                        <span class="metric-value">${samp}</span>
                     </div>
                 </div>
                 ${entropy.recommendations?.length ? `
@@ -90,12 +113,19 @@ class VisualizationManager {
 
     _renderTurbulenceCard(turbulence) {
         const levelColors = {
-            'calm': '#10b981',
-            'moderate': '#f59e0b',
-            'turbulent': '#ef4444',
-            'chaotic': '#dc2626'
+            calm: '#10b981',
+            moderate: '#f59e0b',
+            turbulent: '#ef4444',
+            chaotic: '#dc2626',
+            laminar: '#10b981',
+            transition: '#f59e0b',
         };
-        const color = levelColors[turbulence.level] || '#6b7280';
+        const lvl = turbulence.level || 'moderate';
+        const color = levelColors[lvl] || '#6b7280';
+        const score = typeof turbulence.score === 'number' ? Math.min(100, Math.max(0, turbulence.score)) : 50;
+        const badge =
+            turbulence.badge_label ||
+            (turbulence.raw_level ? String(turbulence.raw_level).toUpperCase() : String(lvl).toUpperCase());
 
         return `
             <div class="analysis-card turbulence-card">
@@ -106,16 +136,16 @@ class VisualizationManager {
                 <div class="card-body">
                     <div class="turbulence-meter">
                         <div class="meter-bar">
-                            <div class="meter-fill" style="width: ${turbulence.score}%; background: ${color}"></div>
+                            <div class="meter-fill" style="width: ${score}%; background: ${color}"></div>
                         </div>
-                        <span class="meter-label">${turbulence.score.toFixed(1)}</span>
+                        <span class="meter-label">${score.toFixed(1)}</span>
                     </div>
                     <div class="level-badge" style="background: ${color}20; color: ${color}">
-                        ${turbulence.level.toUpperCase()}
+                        ${escapeHtml(badge)}
                     </div>
                 </div>
                 <div class="card-footer">
-                    <p>${escapeHtml(turbulence.interpretation)}</p>
+                    <p>${escapeHtml(turbulence.interpretation || '')}</p>
                 </div>
             </div>
         `;
@@ -276,6 +306,71 @@ class VisualizationManager {
         </svg>`;
         return svg;
     }
+}
+
+/**
+ * 将 API 返回的 PredictionResult（model_dump）转为 renderAnalysisResults 所需结构。
+ * @param {object} result
+ * @returns {object|null} 无可用指标时返回 null
+ */
+function buildPredictionAnalysisFromResult(result) {
+    if (!result || typeof result !== 'object') return null;
+    const out = {};
+    const km = result.key_metrics && typeof result.key_metrics === 'object' ? result.key_metrics : {};
+
+    const ev = result.entropy_value;
+    if (ev != null && Number.isFinite(Number(ev))) {
+        const e = Number(ev);
+        const predictability = 1 / (1 + Math.abs(e));
+        const perm = km.permutation_entropy ?? km.permutation;
+        const samp = km.sample_entropy ?? km.sample;
+        out.entropy = {
+            predictability,
+            permutation: perm != null && Number.isFinite(Number(perm)) ? Number(perm) : undefined,
+            sample: samp != null && Number.isFinite(Number(samp)) ? Number(samp) : undefined,
+            raw_entropy: e,
+            recommendations: [],
+        };
+    }
+
+    const tl = result.turbulence_level;
+    if (tl) {
+        const map = {
+            laminar: {
+                level: 'calm',
+                score: 22,
+                interpretation: '层流态：变量变化相对平稳。',
+                badge_label: 'LAMINAR',
+            },
+            transition: {
+                level: 'moderate',
+                score: 55,
+                interpretation: '过渡态：变化幅度中等。',
+                badge_label: 'TRANSITION',
+            },
+            turbulent: {
+                level: 'turbulent',
+                score: 88,
+                interpretation: '湍流态：变化剧烈，预测不确定性较高。',
+                badge_label: 'TURBULENT',
+            },
+        };
+        const m = map[tl] || {
+            level: 'moderate',
+            score: 50,
+            interpretation: String(tl),
+            badge_label: String(tl).toUpperCase(),
+        };
+        out.turbulence = { ...m, raw_level: tl };
+    }
+
+    const anoms = result.anomalies;
+    if (Array.isArray(anoms) && anoms.length) {
+        out.anomalies = anoms;
+    }
+
+    if (!out.entropy && !out.turbulence && !out.anomalies) return null;
+    return out;
 }
 
 // ==================== 场景模板选择器 ====================
@@ -549,3 +644,4 @@ window.visManager = visManager;
 window.templateSelector = templateSelector;
 window.historyPlayer = historyPlayer;
 window.anomalyAlertManager = anomalyAlertManager;
+window.buildPredictionAnalysisFromResult = buildPredictionAnalysisFromResult;
