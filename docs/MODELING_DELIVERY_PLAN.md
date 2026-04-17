@@ -5,6 +5,26 @@
 
 ---
 
+## 阶段完成情况（必做 0.x～2.x）
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| **0.1** | 已完成 | Plan 单测已补 `intent_scene_block`；`PlanAgent` 运行时注入一致。 |
+| **0.2** | 已完成 | 下列 pytest 组合已本地跑通（2026-04-17）。 |
+| **1.1** | 已完成 | 见 [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) 第一节。 |
+| **1.2** | 已完成 | 见下文「五、建模 API 响应字段语义」；代码注释见 `mixins_projects` / `app.js`。 |
+| **1.3** | 已完成 | 见仓库根目录 [README.md](../README.md)「LLM 与建模相关配置」与 [config/uap.example.yaml](../config/uap.example.yaml)。 |
+| **2.1** | 已完成 | 见 [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) 第二节。 |
+| **2.2** | 已完成 | 见 [MODELING_SECURITY_NOTES.md](MODELING_SECURITY_NOTES.md)。 |
+
+**推荐回归命令（CI / 本地）：**
+
+```bash
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py -q
+```
+
+---
+
 ## 一、必做项（建议执行顺序）
 
 ### 阶段 0 — 立刻（阻塞质量信号）
@@ -18,16 +38,16 @@
 
 | 顺序 | 事项 | 说明 | 产出 |
 |------|------|------|------|
-| **1.1** | 固定一条端到端冒烟脚本或检查清单 | 人工或半自动：选项目 → 发一条建模消息 → 确认 `ok`、助手消息、`steps`、`model.json`（若有实质则含变量/关系）、进程徽章与 `modeling_substantive` 一致。 | 文档化步骤（可附在本文件附录或 `docs/` 下短页） |
-| **1.2** | 错误与降级路径对齐 | 统一：`ok: false`（请求/异常）、`ok: true` + `success: false`（如追问待续）、`ok: true` + `success: true` + `modeling_substantive` 三种组合下，前端 Toast/气泡/侧栏不出现互相矛盾文案；必要时在 `mixins_projects` 或前端注释中写明字段语义。 | 简短「字段语义」段落（可写在 API docstring 或本文附录） |
-| **1.3** | 配置与帮助一致 | `uap.local.yaml` / 设置页：LLM、ReAct 步数、超时、MiniMax base_url/model 等与代码默认及错误提示一致；README 或设置内链指向「必填空」。 | 用户可自助排障 |
+| **1.1** | 固定一条端到端冒烟脚本或检查清单 | 见 [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) 第一节；含流式核对。 | 同上 |
+| **1.2** | 错误与降级路径对齐 | 见下文「五、建模 API 响应字段语义」；`mixins_projects` / `app.js` 已补轻量注释。 | 同上 |
+| **1.3** | 配置与帮助一致 | README + `config/uap.example.yaml`（含 `modeling_agent_mode` 示例）。 | 用户可自助排障 |
 
 ### 阶段 2 — 必做收尾（发布前）
 
 | 顺序 | 事项 | 说明 | 产出 |
 |------|------|------|------|
-| **2.1** | Plan 模式与 Auto→Plan 冒烟 | 在 0.1 修复后，用真实或 mock LLM 跑一轮 Plan，确认计划 JSON 解析、失败提示、`replan_count` 等与 UI 一致。 | 记录已知限制（若有） |
-| **2.2** | 安全与数据 | 确认项目工作区路径、卡片超时、流式 `stream_id` 生命周期无泄漏；敏感信息不进日志。 | 自检表打勾 |
+| **2.1** | Plan 模式与 Auto→Plan 冒烟 | 见 [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) 第二节。 | 已知限制见该节 |
+| **2.2** | 安全与数据 | 见 [MODELING_SECURITY_NOTES.md](MODELING_SECURITY_NOTES.md)。 | 自检表见该文档 |
 
 ---
 
@@ -95,4 +115,33 @@ render(
 
 ---
 
-*文档版本：与仓库「对话式建模」主线对齐；随迭代更新阶段完成情况。*
+## 五、建模 API 响应字段语义（`modeling_chat` / 流式 `result`）
+
+同步 `modeling_chat` 成功体与流式结束时的 `result` 字段对齐（见 `ProjectsApiMixin._modeling_chat_core_body`）。
+
+| 字段 | 类型（概念） | 含义 |
+|------|----------------|------|
+| `ok` | bool | **`true`**：`react_modeling` 正常返回且已持久化助手消息；**`false`**：项目不存在、异常或 `react_modeling` 返回 `ok: false`（此时 `message` 多为错误说明）。 |
+| `message` | string | 面向用户的完整助手文本（含可选的步骤摘要、DST 行）；流式结束后与同步一致。 |
+| `success` | bool | **协议成功**：ReAct/Plan 本轮是否以约定正常结束（如末步 `FINAL_ANSWER`）。**不表示**「业务上模型已完备」。 |
+| `modeling_substantive` | bool | **是否有结构化快照**：本轮 `SystemModel` 是否含非空变量、关系或约束之一；前端进程徽章「已完成」依赖此字段（及从 `model` 推断的兜底）。 |
+| `pending_user_input` | bool | **是否等待用户下一条消息**（例如末步 `ask_user`）；此时 `success` 多为 `false`。 |
+| `pending_ask_user_card` | object? | 追问 IM 卡片载荷；无追问时为缺省/空。 |
+| `steps` | array | ReAct 步或 Plan 映射步；供进程时间线展示。 |
+| `plan` | array? | Plan 模式下的计划步骤；ReAct 时可能为空。 |
+| `model` | object? | `SystemModel` 序列化；可与 `modeling_substantive` 交叉核对。 |
+| `dst_state` | object | DST 快照（阶段、变量键名列表等）。 |
+| `mode_used` / `mode_requested` | string | 实际使用模式与请求模式（`auto` 时可能不同）。 |
+
+---
+
+## 六、相关文档
+
+| 文档 | 用途 |
+|------|------|
+| [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) | ReAct / Plan 人工冒烟与自动化命令 |
+| [MODELING_SECURITY_NOTES.md](MODELING_SECURITY_NOTES.md) | 流式、卡片、日志、工作区自检项 |
+
+---
+
+*文档版本：与仓库「对话式建模」主线对齐；阶段完成情况见文首表格。*

@@ -1476,6 +1476,15 @@ function syncModelingDstPanel(dst) {
     updateDSTStatus(uiStage, prog, details);
 }
 
+/**
+ * 建模进程侧栏徽章（与 API 字段对齐，勿与「HTTP 成功」混用）：
+ * - pending_user_input → 「待您回复」/ running
+ * - ok && success && modeling_substantive（或从 model 推断有变量/关系/约束）→ 「已完成」/ completed
+ * - ok && success 且无实质 → 「已结束」/ partial（协议结束但未沉淀结构化快照）
+ * - ok && !success → 「已结束」/ partial
+ * - !ok → 「错误」/ error
+ * 语义详见 docs/MODELING_DELIVERY_PLAN.md 第五节。
+ */
 function renderModelingProcessPanel(response) {
     const badge = document.getElementById('processStatus');
     const box = document.getElementById('processSteps');

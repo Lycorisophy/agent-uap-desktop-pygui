@@ -149,7 +149,18 @@ class ProjectsApiMixin:
         mode: str | None,
         on_llm_token: Callable[[str], None] | None = None,
     ) -> dict:
-        """在已将本轮用户消息写入 store 后执行意图分类与 ReAct/Plan，并持久化助手回复。"""
+        """
+        在已将本轮用户消息写入 store 后执行意图分类与 ReAct/Plan，并持久化助手回复。
+
+        成功（``ok: true``）时返回字段与流式结束时的 ``result`` 一致，主要包括：
+        ``message``, ``model``, ``session_id``, ``steps``, ``dst_state``,
+        ``success``（协议是否正常结束）, ``modeling_substantive``（是否有变量/关系/约束快照）,
+        ``pending_user_input``, ``pending_ask_user_card``, ``tool_calls``,
+        ``mode_used``, ``mode_requested``, ``plan``, ``replan_count``。
+        字段语义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
+
+        失败时 ``ok: false``，仅保证 ``message`` 等错误信息可读。
+        """
         messages = self.project_store.load_messages(project_id)
         intent_scene = run_modeling_intent_scene_if_enabled(
             self.config, messages, user_message_raw
@@ -276,9 +287,10 @@ class ProjectsApiMixin:
         建模对话（同步一次返回）。
 
         成功时返回字段含 ``message``、``steps``、``dst_state``、``success``、
-        ``pending_user_input``（本轮 ReAct 图已结束；若末步为 ``ask_user`` 则等待用户
-        下一条消息再开新轮，并非在同一次 ``invoke`` 内挂起）、
+        ``modeling_substantive``、``pending_user_input``（本轮 ReAct 图已结束；若末步为
+        ``ask_user`` 则等待用户下一条消息再开新轮，并非在同一次 ``invoke`` 内挂起）、
         ``pending_ask_user_card``（可选，追问 IM 卡片数据）、``mode_used`` 等。
+        ``success`` 与 ``modeling_substantive`` 含义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
         渐进式输出请用 ``start_modeling_chat_stream`` /
         ``poll_modeling_chat_stream``。
         ``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。
@@ -360,7 +372,13 @@ class ProjectsApiMixin:
         return {"ok": True, "stream_id": stream_id}
 
     def poll_modeling_chat_stream(self, stream_id: str) -> dict:
-        """拉取自上次 poll 以来累积的 token；若 ``done``，同时返回 ``result`` 或 ``error``。"""
+        """
+        拉取自上次 poll 以来累积的 token；若 ``done``，同时返回 ``result`` 或 ``error``。
+
+        ``done`` 为真且 ``ok`` 为真时，``result`` 与同步 ``modeling_chat`` 成功返回结构一致
+        （含 ``success``、``modeling_substantive``、``pending_ask_user_card`` 等），
+        见 ``_modeling_chat_core_body``。
+        """
         if not stream_id or not str(stream_id).strip():
             return {"ok": False, "error": "Invalid stream_id", "tokens": [], "done": True}
         return self._modeling_stream_hub.poll(str(stream_id).strip())

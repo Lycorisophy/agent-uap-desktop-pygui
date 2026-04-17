@@ -47,6 +47,27 @@ UAP 是一款**纯客户端桌面应用**，旨在帮助用户对复杂系统进
 
 ---
 
+## LLM 与建模相关配置
+
+桌面端连接大模型与建模行为主要由 **[`config/uap.example.yaml`](config/uap.example.yaml)**（复制为 `uap.yaml` 或用户目录下的 `uap.local.yaml`）与 **[`src/uap/config.py`](src/uap/config.py)** 中的 **`LLMConfig`**、**`AgentConfig`** 驱动。
+
+| 配置块 / 字段 | 说明 |
+|---------------|------|
+| **`llm.provider`** | 如 `ollama`、`minimax`、`deepseek`、`qwen` 等；非 Ollama 时强制走 OpenAI 兼容 HTTP。 |
+| **`llm.base_url`** | 厂商 API 根地址（须与控制台文档一致，例如 MiniMax 控制台给出的网关）。 |
+| **`llm.model`** | 控制台注册的 **精确 model id**（勿填带空格的展示名）。 |
+| **`llm.api_key`** | 云端厂商密钥；本地 Ollama 可为 `null`。 |
+| **`llm.api_mode`** | Ollama 可用 `native`；其余厂商一般为 `openai`。 |
+| **`agent.modeling_agent_mode`** | 默认 `react` / `plan` / `auto`；前端每轮选择的模式优先。 |
+| **`agent.react_max_steps_default`** | 单次用户发送内 ReAct 最大决策轮数（1–32，默认 8）。 |
+| **`agent.react_max_time_seconds`** | ReAct 墙钟超时（秒）。 |
+| **`agent.plan_max_time_seconds`** | Plan 墙钟超时（秒）。 |
+| **`agent.ask_user_card_timeout_seconds`** | 建模追问卡片过期秒数。 |
+
+**冒烟与回归**：见 [`docs/MODELING_SMOKE_CHECKLIST.md`](docs/MODELING_SMOKE_CHECKLIST.md) 与 [`docs/MODELING_DELIVERY_PLAN.md`](docs/MODELING_DELIVERY_PLAN.md) 文首「阶段完成情况」中的 pytest 命令。
+
+---
+
 ## 开发进度
 
 ### ✅ 已完成
