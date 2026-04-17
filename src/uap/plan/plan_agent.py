@@ -25,6 +25,20 @@ from uap.skill.models import ActionNode, ActionType
 _LOG = logging.getLogger("uap.plan.agent")
 
 
+def _intent_scene_block(extra: dict | None) -> str:
+    ex = extra or {}
+    ci = str(ex.get("classified_intent") or "").strip()
+    cs = str(ex.get("classified_scene") or "").strip()
+    if not ci and not cs:
+        return "（未启用前置分类或未提供）"
+    parts: list[str] = []
+    if ci:
+        parts.append(f"- 意图分类: {ci}")
+    if cs:
+        parts.append(f"- 场景: {cs}")
+    return "\n".join(parts)
+
+
 class StepStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -205,6 +219,7 @@ class PlanAgent:
 
         prompt = render(
             PromptId.PLAN_GENERATION_USER,
+            intent_scene_block=_intent_scene_block(extra_context),
             task=task or "",
             system_model=system_model or "（无）",
             skills_desc=skills_desc,

@@ -101,6 +101,13 @@ agent:
   # ReAct / Plan 单次建模墙钟上限（秒），避免长时间 ask_user 等导致裸 timeout
   react_max_time_seconds: 300
   plan_max_time_seconds: 300
+  # 建模前意图/场景：当前句 + 向前 N 轮 user/assistant 发给分类模型（0=关闭）
+  modeling_intent_context_rounds: 2
+  # 可选；与主 llm 按字段合并；注释掉或 null 则分类与主对话用同一模型
+  # modeling_classifier_llm:
+  #   provider: ollama
+  #   model: qwen2.5:1.5b
+  #   base_url: ""
   # 内置定时任务（默认开启，用于自动预测）
   builtin_scheduler_enabled: true
 

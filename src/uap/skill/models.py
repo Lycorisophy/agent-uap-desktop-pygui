@@ -88,6 +88,7 @@ class SkillSession(BaseModel):
     # DST 核心字段
     user_query: str = Field("", description="用户原始问题")
     intent: str = Field("general", description="识别的意图分类")
+    scene: str = Field("general", description="业务场景标签（如分类器输出）")
     actions: list[ActionNode] = Field(default_factory=list, description="操作轨迹列表")
     final_output: Any = Field(None, description="最终输出")
     

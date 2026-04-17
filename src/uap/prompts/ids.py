@@ -14,6 +14,8 @@ class PromptId(str, Enum):
     PLAN_GENERATION_USER = "plan_generation_user"
     PLAN_REPLAN_USER = "plan_replan_user"
 
+    MODELING_INTENT_CLASSIFY_USER = "modeling_intent_classify_user"
+
     SKILL_GENERATION_SYSTEM = "skill_generation_system"
     SKILL_GENERATION_USER = "skill_generation_user"
     SKILL_VALIDATION_USER = "skill_validation_user"

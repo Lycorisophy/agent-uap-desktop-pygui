@@ -123,26 +123,40 @@ class DstManager:
         Returns:
             SkillSession: 创建的会话对象
         """
+        ctx = context or {}
+        pid = (ctx.get("project_id") or project_id or "").strip()
+        if "classified_intent" in ctx and (ctx.get("classified_intent") or "").strip():
+            intent = str(ctx.get("classified_intent")).strip()
+        else:
+            intent = self._detect_intent(user_query)
+        scene = (ctx.get("classified_scene") or "general").strip() or "general"
+
         # 创建SkillSession
         session = SkillSession(
             session_id=session_id,
-            project_id=project_id,
+            project_id=pid,
             user_query=user_query,
-            intent=self._detect_intent(user_query),
+            intent=intent,
+            scene=scene,
             status=SessionStatus.ACTIVE
         )
 
         # 创建DST状态
         dst_state = DstState(
             session_id=session_id,
-            project_id=project_id,
+            project_id=pid,
             current_stage=ModelingStage.INTENT_DETECTION
         )
 
         self._sessions[session_id] = session
         self._dst_states[session_id] = dst_state
 
-        _LOG.info("[DstManager] Created session: %s, intent: %s", session_id, session.intent)
+        _LOG.info(
+            "[DstManager] Created session: %s, intent=%s scene=%s",
+            session_id,
+            session.intent,
+            session.scene,
+        )
 
         return session
 
@@ -325,6 +339,10 @@ class DstManager:
         if not dst_state:
             return {}
 
+        sess = self._sessions.get(session_id)
+        intent = getattr(sess, "intent", None) if sess else None
+        scene = getattr(sess, "scene", None) if sess else None
+
         return {
             "current_stage": dst_state.current_stage,
             "variables": list(dst_state.variables.keys()),
@@ -332,7 +350,9 @@ class DstManager:
             "constraints_count": len(dst_state.constraints),
             "progress": self._calculate_progress(dst_state),
             "confidence": dst_state.overall_confidence,
-            "pending_confirmations": len(dst_state.pending_confirmations)
+            "pending_confirmations": len(dst_state.pending_confirmations),
+            "intent": intent,
+            "scene": scene,
         }
 
     def _calculate_progress(self, state: DstState) -> float:

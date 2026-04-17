@@ -311,6 +311,43 @@
                         </div>
                     </div>
                     <div class="settings-section">
+                        <h3>建模意图 / 场景分类</h3>
+                        <p class="hint" style="font-size:0.85rem;color:#666;">每次建模对话前，将「当前句 + 向前 N 轮 user/assistant」发给分类模型，生成意图与场景标签并写入 DST；轮数为 0 时不调用分类 LLM。</p>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>分类用对话轮数 N（默认 2）</label>
+                                <input type="number" id="modelingIntentContextRounds" min="0" max="20" step="1" value="2">
+                            </div>
+                            <div class="form-group">
+                                <label><input type="checkbox" id="classifierUseSeparate"> 使用独立分类模型（不勾选则与上方主 LLM 完全相同）</label>
+                            </div>
+                            <div class="form-group">
+                                <label>分类 — 提供商</label>
+                                <select id="classifyLlmProvider">
+                                    <option value="ollama">Ollama（本地）</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="deepseek">DeepSeek</option>
+                                    <option value="minimax">MiniMax</option>
+                                    <option value="qwen">通义千问（DashScope 兼容）</option>
+                                    <option value="doubao">豆包（火山方舟）</option>
+                                    <option value="kimi">Kimi（Moonshot）</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>分类 — API Key</label>
+                                <input type="password" id="classifyLlmApiKey" autocomplete="off" placeholder="留空则继承主 LLM 已保存密钥">
+                            </div>
+                            <div class="form-group">
+                                <label>分类 — 模型名称</label>
+                                <input type="text" id="classifyLlmModel" placeholder="如 qwen2.5:1.5b；留空则与主模型相同">
+                            </div>
+                            <div class="form-group">
+                                <label>分类 — API Base URL</label>
+                                <input type="text" id="classifyLlmBaseUrl" placeholder="留空则与主 LLM 相同">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
                         <h3>嵌入模型（知识库）</h3>
                         <p class="hint" style="font-size:0.85rem;color:#666;">用于 Milvus 知识库向量；维度须与 Ollama 嵌入模型输出一致（如 qwen3-embedding:8b 常为 4096）。</p>
                         <div class="settings-form">

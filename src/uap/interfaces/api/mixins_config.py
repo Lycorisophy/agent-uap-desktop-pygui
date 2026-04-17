@@ -11,7 +11,7 @@ from uap.interfaces.api._log import _LOG
 
 
 def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
-    """日志用：避免把 llm.api_key 明文写入日志。"""
+    """日志用：避免把 llm / 分类器 api_key 明文写入日志。"""
     if not isinstance(updates, dict):
         return {}
     out = copy.deepcopy(updates)
@@ -19,7 +19,28 @@ def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
     if isinstance(llm, dict) and llm.get("api_key"):
         raw = llm["api_key"]
         llm["api_key"] = f"<redacted len={len(str(raw))}>"
+    agent = out.get("agent")
+    if isinstance(agent, dict):
+        cl = agent.get("modeling_classifier_llm")
+        if isinstance(cl, dict) and cl.get("api_key"):
+            raw = cl["api_key"]
+            cl["api_key"] = f"<redacted len={len(str(raw))}>"
     return out
+
+
+def _agent_payload_for_api(cfg) -> dict[str, Any]:
+    """agent 子配置：分类用 LLM 的 api_key 不落盘到前端。"""
+    ag = cfg.agent.model_dump(mode="json")
+    cl = ag.get("modeling_classifier_llm")
+    if cl is None:
+        ag["modeling_classifier_llm"] = None
+    elif isinstance(cl, dict):
+        cl = dict(cl)
+        cl["api_key"] = ""
+        sub = cfg.agent.modeling_classifier_llm
+        cl["api_key_set"] = bool(sub and sub.api_key)
+        ag["modeling_classifier_llm"] = cl
+    return ag
 
 
 class ConfigApiMixin:
@@ -48,6 +69,7 @@ class ConfigApiMixin:
             "llm_presets": llm_provider_presets(),
             "embedding": emb.model_dump(),
             "storage": self.config.storage.model_dump(),
+            "agent": _agent_payload_for_api(self.config),
             "config_path": str(override_path),
         }
         _LOG.info(
@@ -110,6 +132,31 @@ class ConfigApiMixin:
                 horizon = pd.get("horizon_sec") or pd.get("defaultHorizon") or 259200
                 self.config.prediction.default_frequency_sec = int(freq)
                 self.config.prediction.default_horizon_sec = int(horizon)
+
+            if "agent" in config_updates and isinstance(config_updates["agent"], dict):
+                from uap.config import AgentConfig, LLMConfig
+
+                ag = dict(config_updates["agent"])
+                merged_ag = self.config.agent.model_dump(mode="json")
+                for k, v in ag.items():
+                    if k == "modeling_classifier_llm":
+                        if v is None or v == {}:
+                            merged_ag["modeling_classifier_llm"] = None
+                        else:
+                            inner = dict(v)
+                            inner.pop("api_key_set", None)
+                            cl_base = self.config.llm.model_dump()
+                            for ik, iv in inner.items():
+                                if ik == "api_key" and (iv is None or iv == ""):
+                                    continue
+                                if iv is not None:
+                                    cl_base[ik] = iv
+                            merged_ag["modeling_classifier_llm"] = LLMConfig.model_validate(
+                                cl_base
+                            )
+                    elif v is not None:
+                        merged_ag[k] = v
+                self.config.agent = AgentConfig.model_validate(merged_ag)
 
             from uap.config import local_override_config_path, load_config_file, _deep_merge
 

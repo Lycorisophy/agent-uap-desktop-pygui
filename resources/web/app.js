@@ -19,7 +19,13 @@ const state = {
         embedModel: 'qwen3-embedding:8b',
         embedBaseUrl: '',
         embedDimension: 4096,
-        milvusLitePath: ''
+        milvusLitePath: '',
+        modelingIntentContextRounds: 2,
+        classifyUseSeparate: false,
+        classifyProvider: 'ollama',
+        classifyModel: '',
+        classifyBaseUrl: '',
+        classifyApiKeySet: false
     }
 };
 
@@ -1309,6 +1315,13 @@ function renderPredictionResults(result) {
 
 // ==================== 设置功能 ====================
 
+function setClassifierFieldsDisabled(disabled) {
+    ['classifyLlmProvider', 'classifyLlmApiKey', 'classifyLlmModel', 'classifyLlmBaseUrl'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!disabled;
+    });
+}
+
 function bindSettingsEvents() {
     const saveBtn = document.getElementById('saveSettingsBtn');
     if (saveBtn) {
@@ -1319,6 +1332,12 @@ function bindSettingsEvents() {
         prov.addEventListener('change', () => {
             applyLlmProviderPreset();
             updateLlmPresetHint();
+        });
+    }
+    const clsSep = document.getElementById('classifierUseSeparate');
+    if (clsSep) {
+        clsSep.addEventListener('change', () => {
+            setClassifierFieldsDisabled(!clsSep.checked);
         });
     }
 }
@@ -1357,6 +1376,9 @@ async function loadSettings() {
             const predDefaults = config.prediction_defaults || {};
             const emb = config.embedding || {};
             const storage = config.storage || {};
+            const ag = config.agent || {};
+            const cl = ag.modeling_classifier_llm;
+            const hasClassifier = cl != null && typeof cl === 'object';
             state.settings = {
                 llmProvider: llm.provider || 'ollama',
                 llmModel: llm.model || 'llama3.2',
@@ -1368,7 +1390,16 @@ async function loadSettings() {
                 embedModel: emb.model || 'qwen3-embedding:8b',
                 embedBaseUrl: emb.base_url || '',
                 embedDimension: emb.dimension != null ? emb.dimension : 4096,
-                milvusLitePath: storage.milvus_lite_path || ''
+                milvusLitePath: storage.milvus_lite_path || '',
+                modelingIntentContextRounds:
+                    ag.modeling_intent_context_rounds != null
+                        ? ag.modeling_intent_context_rounds
+                        : 2,
+                classifyUseSeparate: hasClassifier,
+                classifyProvider: (hasClassifier && cl.provider) || llm.provider || 'ollama',
+                classifyModel: (hasClassifier && cl.model) || llm.model || '',
+                classifyBaseUrl: (hasClassifier && cl.base_url) || llm.base_url || '',
+                classifyApiKeySet: !!(hasClassifier && cl.api_key_set)
             };
             console.log('[UAP] loadSettings: get_config 成功', {
                 config_path: config.config_path,
@@ -1396,13 +1427,27 @@ function renderSettings() {
         ['embedModel', state.settings.embedModel],
         ['embedBaseUrl', state.settings.embedBaseUrl],
         ['embedDimension', state.settings.embedDimension],
-        ['milvusLitePath', state.settings.milvusLitePath]
+        ['milvusLitePath', state.settings.milvusLitePath],
+        ['modelingIntentContextRounds', state.settings.modelingIntentContextRounds],
+        ['classifyLlmProvider', state.settings.classifyProvider],
+        ['classifyLlmModel', state.settings.classifyModel],
+        ['classifyLlmBaseUrl', state.settings.classifyBaseUrl]
     ];
 
     fields.forEach(([id, value]) => {
         const el = document.getElementById(id);
         if (el) el.value = value;
     });
+    const clsChk = document.getElementById('classifierUseSeparate');
+    if (clsChk) clsChk.checked = !!state.settings.classifyUseSeparate;
+    setClassifierFieldsDisabled(!state.settings.classifyUseSeparate);
+    const ckey = document.getElementById('classifyLlmApiKey');
+    if (ckey) {
+        ckey.value = '';
+        ckey.placeholder = state.settings.classifyApiKeySet
+            ? '已保存分类密钥（留空不修改）'
+            : '留空则继承主 LLM 已保存密钥';
+    }
     const keyEl = document.getElementById('llmApiKey');
     if (keyEl) {
         keyEl.value = '';
@@ -1430,6 +1475,28 @@ async function saveSettings() {
     };
     const milvusPath = document.getElementById('milvusLitePath')?.value?.trim() || '';
 
+    const roundsRaw = parseInt(
+        document.getElementById('modelingIntentContextRounds')?.value || '2',
+        10
+    );
+    const modeling_intent_context_rounds = Math.max(0, Math.min(20, Number.isFinite(roundsRaw) ? roundsRaw : 2));
+    const useClsSep = document.getElementById('classifierUseSeparate')?.checked;
+    const agent = { modeling_intent_context_rounds };
+    if (!useClsSep) {
+        agent.modeling_classifier_llm = null;
+    } else {
+        const sub = {};
+        const cp = document.getElementById('classifyLlmProvider')?.value?.trim();
+        const cm = document.getElementById('classifyLlmModel')?.value?.trim();
+        const cb = document.getElementById('classifyLlmBaseUrl')?.value?.trim();
+        const ck = document.getElementById('classifyLlmApiKey')?.value?.trim();
+        if (cp) sub.provider = cp;
+        if (cm) sub.model = cm;
+        if (cb) sub.base_url = cb;
+        if (ck) sub.api_key = ck;
+        agent.modeling_classifier_llm = Object.keys(sub).length ? sub : null;
+    }
+
     const settings = {
         llm,
         embedding,
@@ -1439,7 +1506,8 @@ async function saveSettings() {
         prediction_defaults: {
             frequency_sec: parseInt(document.getElementById('defaultFrequency')?.value || 3600),
             horizon_sec: parseInt(document.getElementById('defaultHorizon')?.value || 259200)
-        }
+        },
+        agent
     };
 
     try {
@@ -1466,7 +1534,16 @@ async function saveSettings() {
             embedModel: embedding.model,
             embedBaseUrl: embedding.base_url,
             embedDimension: embedding.dimension,
-            milvusLitePath: milvusPath
+            milvusLitePath: milvusPath,
+            modelingIntentContextRounds: agent.modeling_intent_context_rounds,
+            classifyUseSeparate: !!useClsSep && !!agent.modeling_classifier_llm,
+            classifyProvider:
+                agent.modeling_classifier_llm?.provider || settings.llm.provider,
+            classifyModel: agent.modeling_classifier_llm?.model || settings.llm.model,
+            classifyBaseUrl:
+                agent.modeling_classifier_llm?.base_url || settings.llm.base_url,
+            classifyApiKeySet:
+                state.settings.classifyApiKeySet || !!agent.modeling_classifier_llm?.api_key
         };
         showToast('设置已保存', 'success');
         await loadSettings();

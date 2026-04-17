@@ -162,7 +162,8 @@ class ReactAgent:
 
         _LOG.info("[ReActAgent] Starting session: %s, task: %s", session_id, task[:100])
 
-        dst_session = self.dst.create_session(session_id, task, context)
+        pid = ((context or {}).get("project_id") or "").strip()
+        dst_session = self.dst.create_session(session_id, task, context, project_id=pid)
 
         final = self._graph.invoke(
             {
@@ -335,6 +336,8 @@ class ReactAgent:
             parts.append(f"用户意图: {session.user_query}")
         if session.intent:
             parts.append(f"任务类型: {session.intent}")
+        if getattr(session, "scene", None):
+            parts.append(f"场景: {session.scene}")
         if session.actions:
             parts.append(f"已完成操作: {len(session.actions)}步")
             for action in session.actions:

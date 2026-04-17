@@ -793,6 +793,7 @@ class ProjectService:
         card_manager=None,
         web_search_func=None,
         mode: str | None = None,
+        intent_scene: dict | None = None,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
@@ -804,6 +805,8 @@ class ProjectService:
             project = self._store.get_project(project_id)
             chat_model = create_langchain_chat_model(self._cfg.llm)
             context = self._modeling_context_dict(project_id, project)
+            if intent_scene:
+                context.update(intent_scene)
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"

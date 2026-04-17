@@ -7,6 +7,7 @@ from typing import Optional
 
 from uap.project.models import ProjectStatus, SystemModel
 
+from uap.application.modeling_intent_classifier import run_modeling_intent_scene_if_enabled
 from uap.interfaces.api._log import _LOG
 
 
@@ -106,6 +107,10 @@ class ProjectsApiMixin:
             )
             self.project_store.save_messages(project_id, messages)
 
+            intent_scene = run_modeling_intent_scene_if_enabled(
+                self.config, messages, message
+            )
+
             effective_mode = mode
             if effective_mode is None or not str(effective_mode).strip():
                 effective_mode = self.config.agent.modeling_agent_mode or "react"
@@ -116,6 +121,7 @@ class ProjectsApiMixin:
                 card_manager=self.card_manager,
                 web_search_func=self._get_web_search_func(),
                 mode=str(effective_mode).strip().lower(),
+                intent_scene=intent_scene if intent_scene else None,
             )
             _LOG.info(
                 "[API] modeling result: ok=%s, success=%s, mode_used=%s",
