@@ -762,7 +762,8 @@ function updateDSTStatus(stage, progress, details = {}) {
     
     // 更新阶段
     const stageOrder = ['INITIAL', 'INTENT', 'VARIABLES', 'RELATIONS', 'CONSTRAINTS', 'VALIDATION', 'COMPLETED'];
-    const currentIndex = stageOrder.indexOf(stage);
+    const rawIdx = stageOrder.indexOf(stage);
+    const currentIndex = rawIdx < 0 ? 0 : rawIdx;
     
     if (stagesContainer) {
         document.querySelectorAll('.dst-stage').forEach(el => {
@@ -979,8 +980,8 @@ function bindKnowledgeEvents() {
     document.getElementById('kbProjectSelect')?.addEventListener('change', () => refreshKbStatus());
 }
 
-const UAP_TYPEWRITER_MS = 14;
-const UAP_TYPEWRITER_CHARS = 3;
+const UAP_TYPEWRITER_BASE_MS = 18;
+const UAP_TYPEWRITER_CHARS = 1;
 
 function uapPrefersReducedMotion() {
     try {
@@ -990,9 +991,48 @@ function uapPrefersReducedMotion() {
     }
 }
 
+function _typewriterTiming(len) {
+    const l = len || 0;
+    if (l > 3500) return { ms: 6, chars: 2 };
+    if (l > 1200) return { ms: 10, chars: 1 };
+    return { ms: UAP_TYPEWRITER_BASE_MS, chars: UAP_TYPEWRITER_CHARS };
+}
+
 /**
- * 建模助手回复打字机效果（纯 textContent，避免 HTML 注入）。
- * 系统开启「减少动态效果」时直接全文展示。
+ * 在已有 text 节点上跑打字机（textContent，无 HTML）。
+ */
+function runTypewriterEffect(textDiv, fullText, scrollParent) {
+    const full = fullText == null ? '' : String(fullText);
+    const scrollEl = scrollParent || textDiv.closest('.chat-messages') || textDiv.parentElement;
+
+    if (uapPrefersReducedMotion() || !full.length) {
+        textDiv.textContent = full;
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+        return Promise.resolve();
+    }
+
+    const { ms, chars } = _typewriterTiming(full.length);
+    return new Promise((resolve) => {
+        let i = 0;
+        const step = () => {
+            if (i >= full.length) {
+                if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+                resolve();
+                return;
+            }
+            const n = Math.min(full.length, i + chars);
+            textDiv.textContent += full.slice(i, n);
+            i = n;
+            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+            setTimeout(step, ms);
+        };
+        textDiv.textContent = '';
+        step();
+    });
+}
+
+/**
+ * 建模助手纯文本气泡 + 打字机（兼容旧调用）。
  */
 function appendAssistantTypewriter(content, timestamp) {
     const container = document.getElementById('chatMessages');
@@ -1010,30 +1050,186 @@ function appendAssistantTypewriter(content, timestamp) {
     `;
     const textDiv = messageEl.querySelector('.message-text');
     container.appendChild(messageEl);
+    return runTypewriterEffect(textDiv, content, container);
+}
 
-    const full = content == null ? '' : String(content);
-    if (uapPrefersReducedMotion() || !full.length) {
-        textDiv.textContent = full;
-        container.scrollTop = container.scrollHeight;
-        return Promise.resolve();
+function extractModelingSummaryText(fullMessage) {
+    const s = fullMessage == null ? '' : String(fullMessage);
+    const idx = s.indexOf('\n\n[');
+    return (idx >= 0 ? s.slice(0, idx) : s).trim();
+}
+
+function safeJsonForPre(obj) {
+    try {
+        return JSON.stringify(obj, null, 2);
+    } catch (e) {
+        return String(obj);
+    }
+}
+
+function formatModelingStepBodyHtml(step) {
+    const parts = [];
+    const th = (step.thought || '').trim();
+    if (th) {
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">思考</span><pre class="mt-pre">${escapeHtml(th)}</pre></div>`
+        );
+    }
+    const act = (step.action || '').trim();
+    const desc = (step.description || '').trim();
+    if (desc && act === 'plan_step') {
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">步骤说明</span><pre class="mt-pre">${escapeHtml(desc)}</pre></div>`
+        );
+    }
+    if (act && act !== 'FINAL_ANSWER') {
+        const inp = step.action_input;
+        let extra = '';
+        if (inp && typeof inp === 'object' && Object.keys(inp).length) {
+            extra = `<pre class="mt-pre">${escapeHtml(safeJsonForPre(inp))}</pre>`;
+        }
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">工具调用</span><div class="mt-pre" style="white-space:pre-wrap;font-weight:600;margin-bottom:4px">${escapeHtml(act)}</div>${extra}</div>`
+        );
+    }
+    const obs = (step.observation || '').trim();
+    if (obs) {
+        const lab = act === 'FINAL_ANSWER' ? '最终回复' : '观察 / 回复';
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">${lab}</span><pre class="mt-pre">${escapeHtml(obs)}</pre></div>`
+        );
+    }
+    if (step.is_error || step.error_message) {
+        const err = (step.error_message || '').trim() || '错误';
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">错误</span><pre class="mt-pre">${escapeHtml(err)}</pre></div>`
+        );
+    }
+    if (step.tool_name && act !== step.tool_name) {
+        parts.push(
+            `<div class="mt-block"><span class="mt-label">工具名</span><pre class="mt-pre">${escapeHtml(String(step.tool_name))}</pre></div>`
+        );
+    }
+    return parts.join('') || '<div class="mt-block hint">（无详情）</div>';
+}
+
+function modelingStepSummaryLine(step, index1) {
+    const act = (step.action || '').trim();
+    if (act === 'FINAL_ANSWER') return `第${index1}步 · 最终回复`;
+    if (act === 'ask_user') return `第${index1}步 · 追问用户`;
+    if (act === 'plan_step') return `第${index1}步 · 计划步骤`;
+    return `第${index1}步 · ${act || '执行'}`;
+}
+
+function buildModelingTraceHtml(steps) {
+    if (!steps || !steps.length) {
+        return '<div class="hint" style="padding:8px">本回合无分步轨迹（例如规划 JSON 解析失败或未进入 ReAct/Plan 循环）。</div>';
+    }
+    return steps
+        .map((step, i) => {
+            const sum = escapeHtml(modelingStepSummaryLine(step, i + 1));
+            const body = formatModelingStepBodyHtml(step);
+            return `<details class="mt-step"><summary>${sum}</summary><div class="mt-body">${body}</div></details>`;
+        })
+        .join('');
+}
+
+function normalizeDstStageForUi(raw) {
+    const s = String(raw || '')
+        .toLowerCase()
+        .replace(/^modelingstage\./, '');
+    const m = {
+        initial: 'INITIAL',
+        intent: 'INTENT',
+        variables: 'VARIABLES',
+        relations: 'RELATIONS',
+        constraints: 'CONSTRAINTS',
+        validation: 'VALIDATION',
+        prediction: 'VALIDATION',
+        completed: 'COMPLETED',
+    };
+    return m[s] || 'INITIAL';
+}
+
+function syncModelingDstPanel(dst) {
+    if (!dst || typeof dst !== 'object' || Object.keys(dst).length === 0) return;
+    const uiStage = normalizeDstStageForUi(dst.current_stage);
+    const prog = typeof dst.progress === 'number' ? dst.progress : 0;
+    const details = {};
+    if (dst.intent) details['意图'] = dst.intent;
+    if (dst.scene) details['场景'] = dst.scene;
+    if (Array.isArray(dst.variables)) details['变量数'] = String(dst.variables.length);
+    if (Array.isArray(dst.relations)) details['关系数'] = String(dst.relations.length);
+    if (dst.constraints_count != null) details['约束条数'] = String(dst.constraints_count);
+    updateDSTStatus(uiStage, prog, details);
+}
+
+function renderModelingProcessPanel(response) {
+    const badge = document.getElementById('processStatus');
+    const box = document.getElementById('processSteps');
+    if (!box) return;
+
+    const ok = response && response.ok !== false;
+    const success = !!(response && response.success);
+    let st = 'idle';
+    if (!ok) st = 'error';
+    else if (success) st = 'completed';
+    else st = 'completed';
+
+    if (badge) {
+        badge.className = `status-badge ${st}`;
+        badge.textContent = { idle: '空闲', running: '运行中', completed: '已结束', error: '错误' }[st] || st;
     }
 
-    return new Promise((resolve) => {
-        let i = 0;
-        const step = () => {
-            if (i >= full.length) {
-                container.scrollTop = container.scrollHeight;
-                resolve();
-                return;
-            }
-            const n = Math.min(full.length, i + UAP_TYPEWRITER_CHARS);
-            textDiv.textContent += full.slice(i, n);
-            i = n;
-            container.scrollTop = container.scrollHeight;
-            setTimeout(step, UAP_TYPEWRITER_MS);
-        };
-        step();
-    });
+    const mu = ((response && response.mode_used) || '').toString().trim().toLowerCase();
+    const mr = ((response && response.mode_requested) || '').toString().trim().toLowerCase();
+    let modeLabel = mu === 'plan' ? 'Plan' : 'ReAct';
+    if (mr === 'auto' && mu) modeLabel = `Auto→${mu}`;
+
+    const steps = (response && response.steps) || [];
+    const header = `<div class="process-step completed" style="border-left-color:#6366f1"><div class="step-header"><span class="step-name">模式 · ${escapeHtml(modeLabel)}</span><span class="step-status">${steps.length} 步</span></div></div>`;
+
+    if (!steps.length) {
+        box.innerHTML =
+            header +
+            '<div class="empty-state">无结构化步骤数据（可查看左侧聊天中的汇总说明）</div>';
+        return;
+    }
+    box.innerHTML = header + buildModelingTraceHtml(steps);
+}
+
+/**
+ * 建模成功：轨迹（可折叠）+ 汇总打字机；并刷新进程 / DST 侧栏。
+ */
+async function appendModelingAssistantWithTrace(response) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return;
+
+    const fullMsg = response.message != null ? String(response.message) : '';
+    const summary = extractModelingSummaryText(fullMsg);
+    const traceHtml = buildModelingTraceHtml(response.steps || []);
+    const timeStr = formatTime(new Date().toISOString());
+
+    const wrap = document.createElement('div');
+    wrap.className = 'message assistant modeling-response';
+    wrap.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="message-content modeling-response-inner">
+            <div class="modeling-trace">${traceHtml}</div>
+            <div class="modeling-summary">
+                <div class="modeling-summary-label">助手汇总</div>
+                <div class="message-text modeling-typewriter-target" style="white-space: pre-wrap;"></div>
+                <div class="message-time">${escapeHtml(timeStr)}</div>
+            </div>
+        </div>
+    `;
+    container.appendChild(wrap);
+    const target = wrap.querySelector('.modeling-typewriter-target');
+    renderModelingProcessPanel(response);
+    if (response.dst_state) syncModelingDstPanel(response.dst_state);
+    switchAgentTab('process');
+
+    await runTypewriterEffect(target, summary, container);
 }
 
 async function sendModelingMessage() {
@@ -1073,14 +1269,19 @@ async function sendModelingMessage() {
                 mode
             );
             removeLoadingMessage(loadingId);
-            if (response) {
-                await appendAssistantTypewriter(
-                    response.message != null ? response.message : String(response),
-                    new Date().toISOString()
-                );
+            if (response && response.ok) {
+                await appendModelingAssistantWithTrace(response);
                 if (response.model) {
                     window.uapAPI.onModelExtracted(response.model);
                 }
+            } else if (response) {
+                await appendAssistantTypewriter(
+                    response.message != null ? response.message : '建模失败',
+                    new Date().toISOString()
+                );
+                renderModelingProcessPanel({ ok: false, steps: [], success: false });
+                if (response.dst_state) syncModelingDstPanel(response.dst_state);
+                switchAgentTab('process');
             }
         } else {
             // 演示模式

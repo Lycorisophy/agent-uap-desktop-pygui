@@ -435,6 +435,96 @@ select {
     border-bottom-left-radius: 4px;
 }
 
+/* 建模助手：步骤轨迹 + 底部汇总（打字机作用于汇总） */
+.message.assistant.modeling-response .message-content {
+    max-width: 92%;
+}
+
+.modeling-response-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.modeling-trace {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modeling-trace details.mt-step {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 2px 8px;
+    font-size: 13px;
+}
+
+.modeling-trace details.mt-step > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #334155;
+    padding: 6px 4px;
+    list-style-position: outside;
+}
+
+.modeling-trace details.mt-step[open] > summary {
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 6px;
+}
+
+.mt-body {
+    padding-bottom: 6px;
+}
+
+.mt-block {
+    margin-top: 6px;
+}
+
+.mt-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: none;
+    margin-bottom: 2px;
+}
+
+.mt-pre {
+    margin: 0;
+    padding: 8px 10px;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.modeling-summary {
+    border-top: 1px dashed var(--border-color);
+    padding-top: 8px;
+}
+
+.modeling-summary-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.modeling-typewriter-target.message-text {
+    margin-top: 0;
+}
+
+/* 进程侧栏：与聊天区同结构的折叠块 */
+.process-steps .mt-step {
+    margin-bottom: 4px;
+}
+
 .message-time {
     font-size: 11px;
     color: var(--text-muted);
