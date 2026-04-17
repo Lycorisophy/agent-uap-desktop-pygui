@@ -1002,8 +1002,14 @@ function _typewriterTiming(len) {
  * 在已有 text 节点上跑打字机（textContent，无 HTML）。
  */
 function runTypewriterEffect(textDiv, fullText, scrollParent) {
+    if (!textDiv) {
+        return Promise.resolve();
+    }
     const full = fullText == null ? '' : String(fullText);
-    const scrollEl = scrollParent || textDiv.closest('.chat-messages') || textDiv.parentElement;
+    const scrollEl =
+        scrollParent ||
+        (textDiv.closest && textDiv.closest('.chat-messages')) ||
+        textDiv.parentElement;
 
     if (uapPrefersReducedMotion() || !full.length) {
         textDiv.textContent = full;
@@ -1059,24 +1065,35 @@ function extractModelingSummaryText(fullMessage) {
     return (idx >= 0 ? s.slice(0, idx) : s).trim();
 }
 
-function safeJsonForPre(obj) {
+function safeJsonForPre(obj, maxLen = 12000) {
     try {
-        return JSON.stringify(obj, null, 2);
+        let s = JSON.stringify(obj, null, 2);
+        if (s.length > maxLen) {
+            s = s.slice(0, maxLen - 1) + '…';
+        }
+        return s;
     } catch (e) {
         return String(obj);
     }
 }
 
+/** 避免单步内容过大导致 innerHTML 长时间阻塞主线程（界面像卡在「正在分析」） */
+function truncateModelingUiText(s, maxLen) {
+    const t = String(s || '');
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, maxLen - 1)}…\n\n（已截断显示）`;
+}
+
 function formatModelingStepBodyHtml(step) {
     const parts = [];
-    const th = (step.thought || '').trim();
+    const th = truncateModelingUiText((step.thought || '').trim(), 6000);
     if (th) {
         parts.push(
             `<div class="mt-block"><span class="mt-label">思考</span><pre class="mt-pre">${escapeHtml(th)}</pre></div>`
         );
     }
     const act = (step.action || '').trim();
-    const desc = (step.description || '').trim();
+    const desc = truncateModelingUiText((step.description || '').trim(), 8000);
     if (desc && act === 'plan_step') {
         parts.push(
             `<div class="mt-block"><span class="mt-label">步骤说明</span><pre class="mt-pre">${escapeHtml(desc)}</pre></div>`
@@ -1092,7 +1109,7 @@ function formatModelingStepBodyHtml(step) {
             `<div class="mt-block"><span class="mt-label">工具调用</span><div class="mt-pre" style="white-space:pre-wrap;font-weight:600;margin-bottom:4px">${escapeHtml(act)}</div>${extra}</div>`
         );
     }
-    const obs = (step.observation || '').trim();
+    const obs = truncateModelingUiText((step.observation || '').trim(), 12000);
     if (obs) {
         const lab = act === 'FINAL_ANSWER' ? '最终回复' : '观察 / 回复';
         parts.push(
@@ -1100,7 +1117,7 @@ function formatModelingStepBodyHtml(step) {
         );
     }
     if (step.is_error || step.error_message) {
-        const err = (step.error_message || '').trim() || '错误';
+        const err = truncateModelingUiText((step.error_message || '').trim() || '错误', 4000);
         parts.push(
             `<div class="mt-block"><span class="mt-label">错误</span><pre class="mt-pre">${escapeHtml(err)}</pre></div>`
         );
@@ -1121,17 +1138,33 @@ function modelingStepSummaryLine(step, index1) {
     return `第${index1}步 · ${act || '执行'}`;
 }
 
+const UAP_MODELING_TRACE_MAX_STEPS = 60;
+
 function buildModelingTraceHtml(steps) {
     if (!steps || !steps.length) {
         return '<div class="hint" style="padding:8px">本回合无分步轨迹（例如规划 JSON 解析失败或未进入 ReAct/Plan 循环）。</div>';
     }
-    return steps
-        .map((step, i) => {
-            const sum = escapeHtml(modelingStepSummaryLine(step, i + 1));
-            const body = formatModelingStepBodyHtml(step);
-            return `<details class="mt-step"><summary>${sum}</summary><div class="mt-body">${body}</div></details>`;
-        })
-        .join('');
+    const total = steps.length;
+    const slice =
+        total > UAP_MODELING_TRACE_MAX_STEPS
+            ? steps.slice(total - UAP_MODELING_TRACE_MAX_STEPS)
+            : steps;
+    const offset = total - slice.length;
+    const headNote =
+        offset > 0
+            ? `<div class="hint" style="padding:8px">步数较多，仅展示最近 ${slice.length} 步（共 ${total} 步）。</div>`
+            : '';
+    return (
+        headNote +
+        slice
+            .map((step, i) => {
+                const index1 = offset + i + 1;
+                const sum = escapeHtml(modelingStepSummaryLine(step, index1));
+                const body = formatModelingStepBodyHtml(step);
+                return `<details class="mt-step"><summary>${sum}</summary><div class="mt-body">${body}</div></details>`;
+            })
+            .join('')
+    );
 }
 
 function normalizeDstStageForUi(raw) {
@@ -1201,12 +1234,19 @@ function renderModelingProcessPanel(response) {
 /**
  * 建模成功：轨迹（可折叠）+ 汇总打字机；并刷新进程 / DST 侧栏。
  */
+const UAP_MODELING_SUMMARY_TYPEWRITER_MAX = 8000;
+
 async function appendModelingAssistantWithTrace(response) {
     const container = document.getElementById('chatMessages');
     if (!container) return;
 
     const fullMsg = response.message != null ? String(response.message) : '';
-    const summary = extractModelingSummaryText(fullMsg);
+    let summary = extractModelingSummaryText(fullMsg);
+    if (summary.length > UAP_MODELING_SUMMARY_TYPEWRITER_MAX) {
+        summary =
+            summary.slice(0, UAP_MODELING_SUMMARY_TYPEWRITER_MAX - 40) +
+            '\n\n…（汇总过长，已截断显示）';
+    }
     const traceHtml = buildModelingTraceHtml(response.steps || []);
     const timeStr = formatTime(new Date().toISOString());
 
@@ -1225,11 +1265,21 @@ async function appendModelingAssistantWithTrace(response) {
     `;
     container.appendChild(wrap);
     const target = wrap.querySelector('.modeling-typewriter-target');
-    renderModelingProcessPanel(response);
-    if (response.dst_state) syncModelingDstPanel(response.dst_state);
-    switchAgentTab('process');
+    try {
+        renderModelingProcessPanel(response);
+        if (response.dst_state) syncModelingDstPanel(response.dst_state);
+        switchAgentTab('process');
+    } catch (e) {
+        console.error('[modeling] 侧栏刷新失败:', e);
+    }
 
     await runTypewriterEffect(target, summary, container);
+}
+
+function uapYieldToPaint() {
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
 }
 
 async function sendModelingMessage() {
@@ -1263,14 +1313,33 @@ async function sendModelingMessage() {
         if (isPywebviewApiCallable()) {
             const modeSelect = document.getElementById('modelingModeSelect');
             const mode = (modeSelect && modeSelect.value) ? modeSelect.value : 'auto';
-            const response = await window.pywebview.api.modeling_chat(
-                state.currentProject.id,
-                message,
-                mode
-            );
-            removeLoadingMessage(loadingId);
+            let response;
+            try {
+                response = await window.pywebview.api.modeling_chat(
+                    state.currentProject.id,
+                    message,
+                    mode
+                );
+            } finally {
+                removeLoadingMessage(loadingId);
+            }
+            await uapYieldToPaint();
             if (response && response.ok) {
-                await appendModelingAssistantWithTrace(response);
+                try {
+                    await appendModelingAssistantWithTrace(response);
+                } catch (renderErr) {
+                    console.error('建模结果渲染失败:', renderErr);
+                    showToast(
+                        '建模结果渲染失败: ' + (renderErr.message || String(renderErr)),
+                        'error'
+                    );
+                    await appendAssistantTypewriter(
+                        response.message != null
+                            ? String(response.message)
+                            : '（渲染失败，请查看控制台）',
+                        new Date().toISOString()
+                    );
+                }
                 if (response.model) {
                     window.uapAPI.onModelExtracted(response.model);
                 }
