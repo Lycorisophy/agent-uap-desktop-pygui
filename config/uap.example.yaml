@@ -98,6 +98,9 @@ memory:
 # 智能体配置
 agent:
   react_max_steps_default: 12
+  # ReAct / Plan 单次建模墙钟上限（秒），避免长时间 ask_user 等导致裸 timeout
+  react_max_time_seconds: 300
+  plan_max_time_seconds: 300
   # 内置定时任务（默认开启，用于自动预测）
   builtin_scheduler_enabled: true
 

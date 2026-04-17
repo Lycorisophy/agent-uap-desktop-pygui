@@ -973,6 +973,63 @@ function bindKnowledgeEvents() {
     document.getElementById('kbProjectSelect')?.addEventListener('change', () => refreshKbStatus());
 }
 
+const UAP_TYPEWRITER_MS = 14;
+const UAP_TYPEWRITER_CHARS = 3;
+
+function uapPrefersReducedMotion() {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * 建模助手回复打字机效果（纯 textContent，避免 HTML 注入）。
+ * 系统开启「减少动态效果」时直接全文展示。
+ */
+function appendAssistantTypewriter(content, timestamp) {
+    const container = document.getElementById('chatMessages');
+    if (!container) return Promise.resolve();
+
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message assistant';
+    const timeStr = formatTime(timestamp);
+    messageEl.innerHTML = `
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+            <div class="message-text" style="white-space: pre-wrap;"></div>
+            <div class="message-time">${escapeHtml(timeStr)}</div>
+        </div>
+    `;
+    const textDiv = messageEl.querySelector('.message-text');
+    container.appendChild(messageEl);
+
+    const full = content == null ? '' : String(content);
+    if (uapPrefersReducedMotion() || !full.length) {
+        textDiv.textContent = full;
+        container.scrollTop = container.scrollHeight;
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        let i = 0;
+        const step = () => {
+            if (i >= full.length) {
+                container.scrollTop = container.scrollHeight;
+                resolve();
+                return;
+            }
+            const n = Math.min(full.length, i + UAP_TYPEWRITER_CHARS);
+            textDiv.textContent += full.slice(i, n);
+            i = n;
+            container.scrollTop = container.scrollHeight;
+            setTimeout(step, UAP_TYPEWRITER_MS);
+        };
+        step();
+    });
+}
+
 async function sendModelingMessage() {
     const input = document.getElementById('chatInput');
     const message = input?.value.trim();
@@ -1011,24 +1068,22 @@ async function sendModelingMessage() {
             );
             removeLoadingMessage(loadingId);
             if (response) {
-                appendChatMessage({
-                    type: 'assistant',
-                    content: response.message || response,
-                    timestamp: new Date().toISOString()
-                });
+                await appendAssistantTypewriter(
+                    response.message != null ? response.message : String(response),
+                    new Date().toISOString()
+                );
                 if (response.model) {
                     window.uapAPI.onModelExtracted(response.model);
                 }
             }
         } else {
             // 演示模式
-            setTimeout(() => {
+            setTimeout(async () => {
                 removeLoadingMessage(loadingId);
-                appendChatMessage({
-                    type: 'assistant',
-                    content: `已收到：「${message}」（演示模式）\n\n我会像真实环境一样先澄清目标与时间范围，再逐步建模。请连接后端以使用完整智能体。`,
-                    timestamp: new Date().toISOString()
-                });
+                await appendAssistantTypewriter(
+                    `已收到：「${message}」（演示模式）\n\n我会像真实环境一样先澄清目标与时间范围，再逐步建模。请连接后端以使用完整智能体。`,
+                    new Date().toISOString()
+                );
             }, 1000);
         }
     } catch (e) {

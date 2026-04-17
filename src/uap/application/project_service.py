@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from uap.config import LLMConfig, UapConfig
 from uap.infrastructure.knowledge import ProjectKnowledgeService
@@ -651,12 +651,13 @@ class ProjectService:
                 project_id, self._knowledge
             )
 
+        react_max_time = float(getattr(self._cfg.agent, "react_max_time_seconds", 300.0) or 300.0)
         react_agent = ReactAgent(
             chat_model=chat_model,
             skills_registry=skills_registry,
             dst_manager=dst_manager,
             max_iterations=15,
-            max_time_seconds=180.0,
+            max_time_seconds=react_max_time,
             compression_config=self._cfg.context_compression,
             knowledge_service=self._knowledge,
         )
@@ -735,12 +736,13 @@ class ProjectService:
                 project_id, self._knowledge
             )
 
+        plan_max_time = float(getattr(self._cfg.agent, "plan_max_time_seconds", 300.0) or 300.0)
         plan_agent = PlanAgent(
             chat_model=chat_model,
             skills_registry=skills_registry,
             dst_manager=dst_manager,
             max_replans=3,
-            max_time_seconds=300.0,
+            max_time_seconds=plan_max_time,
             enable_parallel=False,
         )
         card_integration = ReactCardIntegration(card_manager) if card_manager else None
@@ -1021,14 +1023,78 @@ class ProjectService:
         )
         return model
 
-    def _generate_response_message(self, result, model) -> str:
-        """生成响应消息"""
+    _MODELING_ERROR_HINTS: dict[str, str] = {
+        "empty_plan": (
+            "未能从模型输出中解析出有效的「计划步骤」JSON。"
+            "请确认当前 LLM 是否按提示词返回 JSON 数组（含 description、tool_name、tool_params），"
+            "或尝试换用更擅长遵循指令的模型后再试。"
+        ),
+        "timeout": (
+            "本次会话已达到单次运行的最大时长，推理已停止。"
+            "若智能体曾向您提问，请在**下一条消息**中直接作答或选择选项，以便继续建模。"
+        ),
+        "max_iterations": "已达到单次会话的最大推理步数上限，未完成建模。可精简目标或分多轮说明后再试。",
+        "max_replans_exceeded": "计划多次重规划后仍失败，请检查任务描述或换用模型后重试。",
+        "replan_empty": "重规划时模型未返回有效后续步骤，请调整表述或换用模型后重试。",
+    }
+
+    def _format_modeling_error_hint(self, code: Optional[str]) -> str:
+        if not code:
+            return "未知错误"
+        return self._MODELING_ERROR_HINTS.get(code, f"（内部原因码：{code}）")
+
+    def _append_last_ask_user_excerpt(self, result: Any, parts: list[str]) -> None:
+        steps = getattr(result, "steps", None) or []
+        for step in reversed(steps):
+            action = getattr(step, "action", "") or ""
+            if action != "ask_user":
+                continue
+            raw_inp = getattr(step, "action_input", None)
+            inp: dict[str, Any] = dict(raw_inp) if isinstance(raw_inp, dict) else {}
+            q = (inp.get("question") or "").strip()
+            if not q:
+                break
+            cap = 500
+            snippet = q if len(q) <= cap else q[: cap - 1] + "…"
+            parts.append(f"智能体最后向您提出的问题：\n{snippet}")
+            opts = inp.get("options")
+            if isinstance(opts, list) and len(opts) > 0:
+                parts.append(f"（共 {len(opts)} 个选项，您可在下一条消息中直接回复选择或补充说明。）")
+            break
+
+    def _append_plan_failure_excerpt(self, result: Any, parts: list[str]) -> None:
+        plan = getattr(result, "plan", None) or []
+        if not plan:
+            return
+        lines: list[str] = []
+        for p in plan[:10]:
+            sid = getattr(p, "step_id", 0)
+            desc = (getattr(p, "description", None) or "").strip()
+            st = getattr(p, "status", None)
+            stv = getattr(st, "value", st) if st is not None else ""
+            if desc:
+                lines.append(f"- 步骤{sid} [{stv}]: {desc[:140]}{'…' if len(desc) > 140 else ''}")
+        if lines:
+            parts.append("本会话内相关计划步骤摘要：\n" + "\n".join(lines))
+
+    def _generate_response_message(self, result: Any, model: Optional[SystemModel]) -> str:
+        """生成面向用户的响应消息（成功摘要 / 失败时中文说明 + 上下文摘录）。"""
         if result.success and model:
-            parts = []
+            parts: list[str] = []
             if model.variables:
                 parts.append(f"已识别 {len(model.variables)} 个变量")
             if model.relations:
                 parts.append(f"发现 {len(model.relations)} 个关系")
             if parts:
                 return "建模进度：" + "，".join(parts) + "。"
-        return "建模完成。" if result.success else f"建模问题：{result.error_message or '未知错误'}"
+        if result.success:
+            return "建模完成。"
+
+        code = getattr(result, "error_message", None) or ""
+        hint = self._format_modeling_error_hint(str(code).strip() or None)
+        blocks: list[str] = [f"建模未能完成：{hint}"]
+
+        self._append_last_ask_user_excerpt(result, blocks)
+        self._append_plan_failure_excerpt(result, blocks)
+
+        return "\n\n".join(blocks)

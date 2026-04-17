@@ -200,6 +200,18 @@ class AgentConfig(BaseModel):
     - ``modeling_agent_mode``：未传每轮 ``mode`` 时的默认（``react`` / ``plan`` / ``auto``）。
     """
     react_max_steps_default: int = Field(default=12, ge=1, le=200)
+    react_max_time_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=7200.0,
+        description="单次建模 ReAct 会话墙钟超时（秒），与 max_iterations 二选一先触发",
+    )
+    plan_max_time_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=7200.0,
+        description="单次建模 Plan 图墙钟超时（秒）",
+    )
     builtin_scheduler_enabled: bool = True
     modeling_agent_mode: str = Field(
         default="react",
@@ -208,6 +220,16 @@ class AgentConfig(BaseModel):
     modeling_kb_tool_enabled: bool = Field(
         default=True,
         description="为建模 ReAct/Plan 注册 search_knowledge（Milvus 项目知识库）工具",
+    )
+    modeling_intent_context_rounds: int = Field(
+        default=2,
+        ge=0,
+        le=20,
+        description="意图/场景分类带入的对话轮数：当前用户句 + 向前最多 N 组 user→assistant；0 关闭 LLM 分类",
+    )
+    modeling_classifier_llm: Optional[LLMConfig] = Field(
+        default=None,
+        description="可选；与主 llm 按字段合并后用于意图/场景分类；None 则完全使用主 llm",
     )
 
 

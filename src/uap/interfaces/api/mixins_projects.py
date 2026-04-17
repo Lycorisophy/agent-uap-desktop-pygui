@@ -138,13 +138,33 @@ class ProjectsApiMixin:
                     else:
                         label = "ReAct"
                     steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
-                    for step in result["steps"][-3:]:
-                        if step.get("thought"):
-                            steps_info += f"\n- 思考: {step['thought'][:50]}..."
-                        if step.get("action") and step.get("action") != "FINAL_ANSWER":
-                            steps_info += f"\n  行动: {step['action']}"
-                        if step.get("description"):
-                            steps_info += f"\n- 步骤: {step['description'][:60]}..."
+                    for step in result["steps"][-5:]:
+                        th = (step.get("thought") or "").strip()
+                        if th:
+                            tcap = 120
+                            steps_info += f"\n- 思考: {th[:tcap]}{'…' if len(th) > tcap else ''}"
+                        act = (step.get("action") or "").strip()
+                        if act and act != "FINAL_ANSWER":
+                            steps_info += f"\n  行动: {act}"
+                        if act == "ask_user":
+                            inp = step.get("action_input") or {}
+                            if isinstance(inp, dict):
+                                q = (inp.get("question") or "").strip()
+                                if q:
+                                    qcap = 280
+                                    qq = q if len(q) <= qcap else q[: qcap - 1] + "…"
+                                    steps_info += f"\n  问题: {qq}"
+                                opts = inp.get("options")
+                                if isinstance(opts, list) and opts:
+                                    steps_info += f"\n  （共 {len(opts)} 个选项）"
+                        desc = (step.get("description") or "").strip()
+                        if desc:
+                            steps_info += f"\n- 步骤说明: {desc[:100]}{'…' if len(desc) > 100 else ''}"
+                        obs = (step.get("observation") or "").strip()
+                        if obs and (act == "plan_step" or (th.startswith("计划步骤:"))):
+                            ocap = 140
+                            oo = obs if len(obs) <= ocap else obs[: ocap - 1] + "…"
+                            steps_info += f"\n  执行结果摘要: {oo}"
                         if step.get("tool_name"):
                             steps_info += f"\n  工具: {step['tool_name']}"
 

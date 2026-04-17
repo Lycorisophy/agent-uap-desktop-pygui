@@ -64,31 +64,61 @@ class PlanResult(BaseModel):
     dst_state: dict = Field(default_factory=dict)
 
 
+def _dict_list_from_parsed(data: Any) -> list[dict[str, Any]]:
+    """从已 parse 的根节点取出步骤 dict 列表。"""
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        for key in ("steps", "plan", "tasks", "items"):
+            inner = data.get(key)
+            if isinstance(inner, list) and inner:
+                out = [x for x in inner if isinstance(x, dict)]
+                if out:
+                    return out
+    return []
+
+
 def _extract_json_array(text: str) -> list[dict[str, Any]]:
-    """从模型输出中解析 JSON 数组。"""
+    """从模型输出中解析计划步骤：支持 JSON 数组、或含 steps/plan 等键的对象。"""
     raw = (text or "").strip()
     if not raw:
         return []
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw, re.IGNORECASE)
     if m:
         raw = m.group(1).strip()
+
     start = raw.find("[")
     end = raw.rfind("]")
-    if start < 0 or end <= start:
-        return []
-    blob = raw[start : end + 1]
+    if start >= 0 and end > start:
+        blob = raw[start : end + 1]
+        try:
+            data = json.loads(blob)
+            got = _dict_list_from_parsed(data)
+            if got:
+                return got
+        except json.JSONDecodeError:
+            _LOG.warning("[PlanAgent] JSON array parse failed, snippet=%s", blob[:800])
+
     try:
-        data = json.loads(blob)
+        root = json.loads(raw)
+        got = _dict_list_from_parsed(root)
+        if got:
+            return got
     except json.JSONDecodeError:
-        _LOG.warning("[PlanAgent] JSON parse failed, snippet=%s", blob[:200])
-        return []
-    if not isinstance(data, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for item in data:
-        if isinstance(item, dict):
-            out.append(item)
-    return out
+        pass
+
+    brace_s = raw.find("{")
+    brace_e = raw.rfind("}")
+    if brace_s >= 0 and brace_e > brace_s:
+        blob2 = raw[brace_s : brace_e + 1]
+        try:
+            root2 = json.loads(blob2)
+            got = _dict_list_from_parsed(root2)
+            if got:
+                return got
+        except json.JSONDecodeError:
+            _LOG.warning("[PlanAgent] JSON object parse failed, snippet=%s", blob2[:800])
+    return []
 
 
 class PlanAgent:
@@ -182,6 +212,19 @@ class PlanAgent:
         resp = self.chat_model.invoke([HumanMessage(content=prompt)])
         text = assistant_text_from_chat_response(resp)
         items = _extract_json_array(str(text))
+        if not items:
+            retry_hint = (
+                "上一段输出无法解析为计划步骤。"
+                "请**只**输出一个 JSON 数组；每个元素为对象，包含字段："
+                "`description`（字符串）、`tool_name`（字符串，对应可用技能 id）、"
+                "`tool_params`（对象）、`depends_on`（整数数组，可为 []）。"
+                "不要使用 Markdown 代码围栏以外的长篇说明。"
+            )
+            resp2 = self.chat_model.invoke(
+                [HumanMessage(content=prompt), HumanMessage(content=retry_hint)]
+            )
+            text = assistant_text_from_chat_response(resp2)
+            items = _extract_json_array(str(text))
         steps: list[PlanStep] = []
         for i, item in enumerate(items, start=1):
             deps = item.get("depends_on") or []
