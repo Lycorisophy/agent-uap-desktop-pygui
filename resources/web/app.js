@@ -1360,6 +1360,61 @@ function modelingStepSummaryLine(step, index1) {
     return `第${index1}步 · ${act || '执行'}`;
 }
 
+/** 摘要行：标题 + 思考预览 + 复制（折叠时也可一键复制正文） */
+function modelingStepSummaryHtml(step, index1) {
+    const sum = modelingStepSummaryLine(step, index1);
+    const sumEsc = escapeHtml(sum);
+    const th = (step.thought || '').trim();
+    let preview = '';
+    let showEllipsis = false;
+    if (th) {
+        const oneLine = th.replace(/\s+/g, ' ');
+        preview = truncateModelingUiText(oneLine, 96);
+        showEllipsis = oneLine.length > 96;
+    }
+    const prevEsc = preview ? escapeHtml(preview) : '';
+    return (
+        '<span class="mt-sum-text">' +
+        `<span class="mt-sum-title">${sumEsc}</span>` +
+        (preview
+            ? `<span class="mt-sum-preview"> · ${prevEsc}${showEllipsis ? '…' : ''}</span>`
+            : '') +
+        '</span>' +
+        '<button type="button" class="mt-copy-btn" aria-label="复制本步内容" title="复制本步（思考、工具与观察）">复制</button>'
+    );
+}
+
+function bindModelingTraceCopyButtons(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('details.mt-step .mt-copy-btn').forEach((btn) => {
+        if (btn.dataset.uapCopyBound) return;
+        btn.dataset.uapCopyBound = '1';
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const det = btn.closest('details.mt-step');
+            const body = det && det.querySelector('.mt-body');
+            const text = body ? body.innerText : '';
+            if (!text) return;
+            const done = () => {
+                if (typeof showToast === 'function') showToast('已复制本步内容', 'success');
+            };
+            const fail = () => {
+                try {
+                    window.prompt('请手动复制：', text);
+                } catch (err) {
+                    console.error(err);
+                }
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(fail);
+            } else {
+                fail();
+            }
+        });
+    });
+}
+
 const UAP_MODELING_TRACE_MAX_STEPS = 60;
 
 function buildModelingTraceHtml(steps) {
@@ -1381,9 +1436,11 @@ function buildModelingTraceHtml(steps) {
         slice
             .map((step, i) => {
                 const index1 = offset + i + 1;
-                const sum = escapeHtml(modelingStepSummaryLine(step, index1));
+                const sumHtml = modelingStepSummaryHtml(step, index1);
                 const body = formatModelingStepBodyHtml(step);
-                return `<details class="mt-step"><summary>${sum}</summary><div class="mt-body">${body}</div></details>`;
+                const isLast = i === slice.length - 1;
+                const openAttr = isLast ? ' open' : '';
+                return `<details class="mt-step"${openAttr}><summary class="mt-summary-row">${sumHtml}</summary><div class="mt-body">${body}</div></details>`;
             })
             .join('')
     );
@@ -1451,6 +1508,7 @@ function renderModelingProcessPanel(response) {
         return;
     }
     box.innerHTML = header + buildModelingTraceHtml(steps);
+    bindModelingTraceCopyButtons(box);
 }
 
 /**
@@ -1486,6 +1544,7 @@ async function appendModelingAssistantWithTrace(response) {
         </div>
     `;
     container.appendChild(wrap);
+    bindModelingTraceCopyButtons(wrap);
     const target = wrap.querySelector('.modeling-typewriter-target');
     try {
         renderModelingProcessPanel(response);

@@ -49,6 +49,40 @@ class ModelingStage(str, Enum):
     COMPLETED = "completed"             # 完成
 
 
+# 流水线顺序（勿用枚举 .value 做字符串比较，且 Pydantic use_enum_values 下字段常为 str）
+_MODELING_STAGE_ORDER: tuple[ModelingStage, ...] = (
+    ModelingStage.INITIAL,
+    ModelingStage.INTENT_DETECTION,
+    ModelingStage.VARIABLE_COLLECTION,
+    ModelingStage.RELATION_DISCOVERY,
+    ModelingStage.CONSTRAINT_DEFINITION,
+    ModelingStage.MODEL_VALIDATION,
+    ModelingStage.PREDICTION_CONFIG,
+    ModelingStage.COMPLETED,
+)
+
+
+def _coerce_modeling_stage(raw: Any) -> ModelingStage:
+    """``DstState`` 在 ``use_enum_values=True`` 时 ``current_stage`` 可能为 str，统一为枚举。"""
+    if isinstance(raw, ModelingStage):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip().lower().removeprefix("modelingstage.")
+        try:
+            return ModelingStage(s)
+        except ValueError:
+            _LOG.debug("[DstManager] Unknown modeling stage %r, fallback INITIAL", raw)
+            return ModelingStage.INITIAL
+    return ModelingStage.INITIAL
+
+
+def _modeling_stage_rank(stage: ModelingStage) -> int:
+    try:
+        return _MODELING_STAGE_ORDER.index(stage)
+    except ValueError:
+        return 0
+
+
 class DstState(BaseModel):
     """
     **DST 核心状态**：可序列化快照，供 API 返回前端与写入 ``ReactResult.dst_state``。
@@ -245,19 +279,20 @@ class DstManager:
 
     def _update_stage(self, state: DstState, tool_name: str, metadata: dict) -> None:
         """根据工具执行情况更新建模阶段"""
+        cur = _coerce_modeling_stage(state.current_stage)
         # 阶段转换逻辑
         if tool_name in ["extract_variables", "define_variable", "variable_collector"]:
-            if state.current_stage.value < ModelingStage.VARIABLE_COLLECTION.value:
+            if _modeling_stage_rank(cur) < _modeling_stage_rank(ModelingStage.VARIABLE_COLLECTION):
                 state.current_stage = ModelingStage.VARIABLE_COLLECTION
                 state.stage_history.append(f"{datetime.now().isoformat()}: variables")
 
         elif tool_name in ["discover_relations", "extract_relations", "relation_finder"]:
-            if state.current_stage.value < ModelingStage.RELATION_DISCOVERY.value:
+            if _modeling_stage_rank(cur) < _modeling_stage_rank(ModelingStage.RELATION_DISCOVERY):
                 state.current_stage = ModelingStage.RELATION_DISCOVERY
                 state.stage_history.append(f"{datetime.now().isoformat()}: relations")
 
         elif tool_name in ["define_constraint", "extract_constraints"]:
-            if state.current_stage.value < ModelingStage.CONSTRAINT_DEFINITION.value:
+            if _modeling_stage_rank(cur) < _modeling_stage_rank(ModelingStage.CONSTRAINT_DEFINITION):
                 state.current_stage = ModelingStage.CONSTRAINT_DEFINITION
                 state.stage_history.append(f"{datetime.now().isoformat()}: constraints")
 
@@ -269,9 +304,12 @@ class DstManager:
             state.current_stage = ModelingStage.PREDICTION_CONFIG
 
         # 检查完成条件
-        if (len(state.variables) >= 1 and
-            len(state.relations) >= 0 and
-            state.current_stage == ModelingStage.VARIABLE_COLLECTION):
+        cur2 = _coerce_modeling_stage(state.current_stage)
+        if (
+            len(state.variables) >= 1
+            and len(state.relations) >= 0
+            and cur2 == ModelingStage.VARIABLE_COLLECTION
+        ):
             # 变量收集足够，可以进入下一阶段
             if state.relation_confidence > 0.5 or not state.relations:
                 state.current_stage = ModelingStage.MODEL_VALIDATION
@@ -368,8 +406,8 @@ class DstManager:
             ModelingStage.COMPLETED: 1.0
         }
 
-        # 基础进度
-        base_progress = weights.get(state.current_stage, 0.0)
+        # 基础进度（current_stage 可能为 str）
+        base_progress = weights.get(_coerce_modeling_stage(state.current_stage), 0.0)
 
         # 根据收集的元素调整
         var_bonus = min(len(state.variables) * 0.05, 0.1)

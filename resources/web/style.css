@@ -532,15 +532,51 @@ select {
     font-size: 13px;
 }
 
-.modeling-trace details.mt-step > summary {
+.modeling-trace details.mt-step > summary.mt-summary-row {
     cursor: pointer;
     font-weight: 600;
     color: #334155;
     padding: 6px 4px;
     list-style-position: outside;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
 }
 
-.modeling-trace details.mt-step[open] > summary {
+.modeling-trace details.mt-step > summary.mt-summary-row::-webkit-details-marker {
+    flex-shrink: 0;
+}
+
+.modeling-trace .mt-sum-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.modeling-trace .mt-sum-preview {
+    font-weight: 400;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.modeling-trace details.mt-step .mt-copy-btn {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 2px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+    line-height: 1.3;
+}
+
+.modeling-trace details.mt-step .mt-copy-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
+
+.modeling-trace details.mt-step[open] > summary.mt-summary-row {
     border-bottom: 1px solid var(--border-color);
     margin-bottom: 6px;
 }
@@ -574,6 +610,15 @@ select {
     word-break: break-word;
     max-height: 220px;
     overflow-y: auto;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+}
+
+.modeling-trace details.mt-step .mt-body {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
 .modeling-summary {
@@ -594,6 +639,42 @@ select {
 /* 进程侧栏：与聊天区同结构的折叠块 */
 .process-steps .mt-step {
     margin-bottom: 4px;
+}
+
+.process-steps details.mt-step > summary.mt-summary-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.process-steps .mt-sum-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.process-steps .mt-sum-preview {
+    font-weight: 400;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.process-steps details.mt-step .mt-copy-btn {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 2px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+
+.process-steps details.mt-step .mt-body,
+.process-steps details.mt-step .mt-pre {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
 .message-time {

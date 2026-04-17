@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uap.config import LLMConfig
+from uap.infrastructure.llm.langchain_chat_model import _normalize_minimax_model_id
 from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
 from uap.infrastructure.llm.openai_compatible_client import OpenAICompatibleChatClient
 
@@ -25,10 +26,13 @@ def create_llm_chat_client(cfg: LLMConfig):
         raise ValueError(
             f"LLM 提供商「{cfg.provider}」使用 OpenAI 兼容接口，请在设置中填写 API Key。"
         )
+    model_id = (cfg.model or "").strip()
+    if cfg.provider == "minimax":
+        model_id = _normalize_minimax_model_id(model_id)
     return OpenAICompatibleChatClient(
         api_key=cfg.api_key,
         base_url=cfg.base_url,
-        model=cfg.model,
+        model=model_id,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
         timeout=120.0,

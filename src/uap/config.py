@@ -43,9 +43,12 @@ def llm_provider_presets() -> dict[str, dict[str, str]]:
             "hint": "本地 Ollama",
         },
         "minimax": {
-            "base_url": "https://api.minimax.chat/v1",
-            "model": "abab6.5s-chat",
-            "hint": "MiniMax OpenAI 兼容接口",
+            "base_url": "https://api.minimax.io/v1",
+            "model": "MiniMax-M2.7",
+            "hint": (
+                "MiniMax OpenAI 兼容；model 须与控制台一致（如 MiniMax-M2.7、MiniMax-M2.7-highspeed）。"
+                "勿填「minimax 2.7」等带空格的展示名。旧域名 api.minimax.chat 若仍可用可改 base_url。"
+            ),
         },
         "deepseek": {
             "base_url": "https://api.deepseek.com",

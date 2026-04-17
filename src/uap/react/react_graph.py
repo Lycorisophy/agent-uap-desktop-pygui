@@ -270,7 +270,25 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         err_msg: str | None = None
 
         if pending_native is not None and isinstance(pending_native, AIMessage):
-            thought = (pending_native.content or "")[:5000]
+            thought = (agent._assistant_message_plain_text(pending_native) or "").strip()[
+                :5000
+            ]
+            if not thought:
+                ak = getattr(pending_native, "additional_kwargs", None) or {}
+                if isinstance(ak, dict):
+                    for key in ("reasoning_content", "reasoning", "thinking"):
+                        v = ak.get(key)
+                        if v:
+                            thought = str(v).strip()[:5000]
+                            break
+                if not thought:
+                    rm = getattr(pending_native, "response_metadata", None) or {}
+                    if isinstance(rm, dict):
+                        for key in ("reasoning_content", "reasoning"):
+                            v = rm.get(key)
+                            if v:
+                                thought = str(v).strip()[:5000]
+                                break
             tc_list = pending_native.tool_calls or []
             if not tc_list:
                 return {

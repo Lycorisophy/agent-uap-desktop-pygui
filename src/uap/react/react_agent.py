@@ -384,6 +384,45 @@ class ReactAgent:
 
         return "当前状态:\n" + "\n".join(parts) if parts else "DST状态: 活跃"
 
+    def _assistant_message_plain_text(self, response: Any) -> str:
+        """从 LangChain 消息或裸 dict/str 中取出可解析的 assistant 文本（含多行 Thought）。"""
+        if hasattr(response, "content") and not isinstance(response, dict):
+            c = getattr(response, "content", None)
+            if isinstance(c, str):
+                return c
+            if isinstance(c, list):
+                parts: list[str] = []
+                for block in c:
+                    if isinstance(block, str):
+                        parts.append(block)
+                    elif isinstance(block, dict):
+                        t = block.get("type")
+                        if t == "text":
+                            parts.append(str(block.get("text") or ""))
+                        elif t in ("reasoning", "reasoning_content"):
+                            parts.append(
+                                str(block.get("text") or block.get("reasoning") or "")
+                            )
+                return "\n".join(parts)
+            return str(c or "")
+        return assistant_text_from_chat_response(response)
+
+    @staticmethod
+    def _is_react_control_line(stripped: str) -> bool:
+        return bool(
+            stripped
+            and (
+                stripped.startswith("Thought:")
+                or stripped.startswith("Thought：")
+                or stripped.startswith("Action:")
+                or stripped.startswith("Action：")
+                or stripped.startswith("Action Input:")
+                or stripped.startswith("Action Input：")
+                or stripped.startswith("FINAL_ANSWER:")
+                or stripped.startswith("FINAL_ANSWER：")
+            )
+        )
+
     def _parse_llm_response(self, response: Any) -> dict:
         """
         **提示词后处理**：把模型自由文本切成 thought/action/input。
@@ -391,11 +430,7 @@ class ReactAgent:
         与 **工具系统**的契约：Action 必须为注册表中的 skill_id，或 FINAL_ANSWER /
         ask_user 等保留字。
         """
-        if hasattr(response, "content") and not isinstance(response, dict):
-            content = response.content
-        else:
-            content = assistant_text_from_chat_response(response)
-
+        text = self._assistant_message_plain_text(response)
         result: dict = {
             "thought": "",
             "action": "",
@@ -403,24 +438,53 @@ class ReactAgent:
             "needs_confirmation": False,
         }
 
-        lines = str(content or "").split("\n")
-        for line in lines:
+        lines = str(text or "").split("\n")
+        idx_after_thought = 0
+        for i, line in enumerate(lines):
+            st = line.strip()
+            if st.startswith("Thought:") or st.startswith("Thought："):
+                sep = "Thought:" if st.startswith("Thought:") else "Thought："
+                first = st[len(sep) :].lstrip()
+                parts: list[str] = [first] if first else []
+                j = i + 1
+                while j < len(lines):
+                    st2 = lines[j].strip()
+                    if self._is_react_control_line(st2) and not (
+                        st2.startswith("Thought:") or st2.startswith("Thought：")
+                    ):
+                        break
+                    parts.append(lines[j])
+                    j += 1
+                result["thought"] = "\n".join(parts).strip()
+                idx_after_thought = j
+                break
+
+        for line in lines[idx_after_thought:]:
             line = line.strip()
-            if line.startswith("Thought:"):
-                result["thought"] = line.replace("Thought:", "").strip()
-            elif line.startswith("Action:"):
-                result["action"] = line.replace("Action:", "").strip()
-            elif line.startswith("Action Input:"):
-                json_str = line.replace("Action Input:", "").strip()
+            if line.startswith("Action:") or line.startswith("Action："):
+                sep = "Action:" if line.startswith("Action:") else "Action："
+                result["action"] = line[len(sep) :].strip()
+            elif line.startswith("Action Input:") or line.startswith("Action Input："):
+                sep = (
+                    "Action Input:"
+                    if line.startswith("Action Input:")
+                    else "Action Input："
+                )
+                json_str = line[len(sep) :].strip()
                 try:
                     import json
 
                     result["action_input"] = json.loads(json_str)
                 except Exception:
                     result["action_input"] = {"raw": json_str}
-            elif line.startswith("FINAL_ANSWER:"):
+            elif line.startswith("FINAL_ANSWER:") or line.startswith("FINAL_ANSWER："):
+                sep = (
+                    "FINAL_ANSWER:"
+                    if line.startswith("FINAL_ANSWER:")
+                    else "FINAL_ANSWER："
+                )
                 result["action"] = "FINAL_ANSWER"
-                result["final_answer"] = line.replace("FINAL_ANSWER:", "").strip()
+                result["final_answer"] = line[len(sep) :].strip()
             elif line.startswith("ask_user") or "确认" in line or "confirm" in line.lower():
                 result["needs_confirmation"] = True
 

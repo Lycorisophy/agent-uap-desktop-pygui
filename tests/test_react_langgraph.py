@@ -63,6 +63,29 @@ def test_build_llm_user_content_includes_harness_hints() -> None:
     assert "当前决策轮次" in out and "3" in out
 
 
+def test_parse_llm_response_multiline_thought() -> None:
+    """多行 Thought 与全角冒号 Action：须完整保留思考文本。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    text = """Thought: 第一行
+第二行仍是思考
+Action： ask_user
+Action Input: {"question": "ok"}"""
+    parsed = agent._parse_llm_response(AIMessage(content=text))
+    assert "第二行仍是思考" in (parsed.get("thought") or "")
+    assert (parsed.get("action") or "").strip() == "ask_user"
+
+
 def test_react_graph_respects_max_iterations() -> None:
     meta = SkillMetadata(
         skill_id="echo_tool",
