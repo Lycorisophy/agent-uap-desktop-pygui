@@ -624,6 +624,7 @@ class ProjectService:
             create_web_search_skill,
         )
         from uap.react.file_access_skill import create_file_access_skill
+        from uap.react.project_kb_skill import create_search_knowledge_skill
         from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 
         _LOG.info("[Modeling/ReAct] project=%s msg=%s", project_id, user_message[:50])
@@ -644,6 +645,11 @@ class ProjectService:
         if not proj_dir.is_dir():
             proj_dir = self._store.resolve_project_directory(project_id)
         skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
+
+        if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
+            skills_registry["search_knowledge"] = create_search_knowledge_skill(
+                project_id, self._knowledge
+            )
 
         react_agent = ReactAgent(
             chat_model=chat_model,
@@ -702,6 +708,7 @@ class ProjectService:
         from uap.plan import PlanAgent
         from uap.react import DstManager, ReactCardIntegration, create_web_search_skill
         from uap.react.file_access_skill import create_file_access_skill
+        from uap.react.project_kb_skill import create_search_knowledge_skill
         from uap.skill.atomic_skills import AtomicSkill, get_atomic_skills_library
 
         _LOG.info("[Modeling/Plan] project=%s", project_id)
@@ -722,6 +729,11 @@ class ProjectService:
         if not proj_dir.is_dir():
             proj_dir = self._store.resolve_project_directory(project_id)
         skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
+
+        if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
+            skills_registry["search_knowledge"] = create_search_knowledge_skill(
+                project_id, self._knowledge
+            )
 
         plan_agent = PlanAgent(
             chat_model=chat_model,

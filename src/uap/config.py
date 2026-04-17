@@ -205,6 +205,10 @@ class AgentConfig(BaseModel):
         default="react",
         description="建模默认模式（react/plan/auto）；API 每轮传入的 mode 优先于本字段",
     )
+    modeling_kb_tool_enabled: bool = Field(
+        default=True,
+        description="为建模 ReAct/Plan 注册 search_knowledge（Milvus 项目知识库）工具",
+    )
 
 
 class ContextCompressionConfig(BaseModel):

@@ -12,6 +12,8 @@
 
 {skills_desc}
 
+若需从「项目已导入知识库」中查找事实，可在某步将 `tool_name` 设为 `search_knowledge`，`tool_params` 含 `query`（及可选 `top_k`）。
+
 ## 输出要求
 
 只输出一个 **JSON 数组**（不要 Markdown 代码围栏以外的说明文字）。每个元素为对象，字段如下：

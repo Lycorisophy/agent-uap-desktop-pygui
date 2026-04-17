@@ -16,4 +16,6 @@
 
 只输出一个 **JSON 数组**（不要其它说明）。格式与初次规划相同：每项含 `description`、`tool_name`、`tool_params`、`depends_on`（可空数组）。
 
+若后续步骤需要查项目知识库，可使用 `search_knowledge`，`tool_params` 至少含 `query`。
+
 仅包含尚未完成且仍需执行的步骤；不要重复已成功完成的步骤。

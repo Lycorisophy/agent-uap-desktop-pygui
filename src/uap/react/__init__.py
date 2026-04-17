@@ -34,6 +34,10 @@ from uap.react.file_access_skill import (
     create_file_access_skill,
     create_external_file_access_skill,
 )
+from uap.react.project_kb_skill import (
+    SearchKnowledgeSkill,
+    create_search_knowledge_skill,
+)
 from uap.react.card_integration import ReactCardIntegration
 
 
@@ -99,6 +103,9 @@ __all__ = [
     "ExternalFileAccessSkill",
     "create_file_access_skill",
     "create_external_file_access_skill",
+    # Project KB (Milvus)
+    "SearchKnowledgeSkill",
+    "create_search_knowledge_skill",
     # HITL
     "ReactCardIntegration",
     # Factory

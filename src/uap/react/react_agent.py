@@ -16,8 +16,7 @@ UAP ReAct Agent —— 「八大行动模式」中的 ReAct 实现层
    挂点；与 `card_integration`、前端卡片联动在 `project_service.react_modeling`。
 
 **记忆与知识**：本会话内「短期上下文」= `_build_context` 拼接的字符串 +
-`SkillSession.actions`；长期记忆应由 `project_store` 消息、`vector`/`history`
-等模块负责（见 `config.MemoryConfig`）。
+`SkillSession.actions`；跨会话/文档事实可由 Harness 注册的 ``search_knowledge``（Milvus 项目知识库）等工具按需检索；另见 `project_store` 消息与 `config.MemoryConfig`。
 
 **提示词工程**：``build_context_parts`` / ``render_parts`` 与 ``react_decision_user.md`` 对齐；
 LangGraph 路径经 ``build_llm_user_content`` 可在发送前按 ``ContextCompressionConfig`` 压缩。
