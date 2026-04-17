@@ -312,6 +312,9 @@ function switchView(viewName) {
     if (viewName === 'prediction') {
         refreshPredictionPanelFromHistory();
     }
+    if (viewName === 'modeling' && state.currentProject) {
+        void loadModelEditorFromApi();
+    }
 }
 
 async function refreshPredictionPanelFromHistory() {
@@ -1063,8 +1066,15 @@ async function refreshModelPreview() {
 window.refreshModelPreview = refreshModelPreview;
 
 function bindModelEditorEvents() {
+    const addVarBtn = document.getElementById('addVariableRowBtn');
     const addBtn = document.getElementById('addRelationRowBtn');
     const saveBtn = document.getElementById('saveModelEditorBtn');
+    const relayoutBtn = document.getElementById('relayoutGraphBtn');
+    if (addVarBtn) {
+        addVarBtn.addEventListener('click', () => {
+            addEmptyVariableRow();
+        });
+    }
     if (addBtn) {
         addBtn.addEventListener('click', () => {
             addEmptyRelationRow();
@@ -1075,17 +1085,45 @@ function bindModelEditorEvents() {
             void saveModelFromEditor();
         });
     }
+    if (relayoutBtn) {
+        relayoutBtn.addEventListener('click', () => {
+            refreshModelEditorGraph();
+        });
+    }
+}
+
+function refreshModelEditorGraph() {
+    const gm = document.getElementById('modelGraphMount');
+    if (gm && typeof window.renderModelForceGraph === 'function') {
+        window.renderModelForceGraph(gm, state.editingModel);
+    }
 }
 
 function validateEditingModel(model) {
-    const names = new Set((model.variables || []).map((v) => v.name).filter(Boolean));
-    if (!names.size) {
-        return '模型中没有变量，无法保存关系（请先在建模对话中提取变量）';
+    const rawNames = (model.variables || []).map((v) => String((v && v.name) || '').trim()).filter(Boolean);
+    const seen = new Set();
+    for (const n of rawNames) {
+        if (seen.has(n)) {
+            return `变量名重复：${n}`;
+        }
+        seen.add(n);
     }
+    const names = new Set(rawNames);
+
+    const rels = model.relations || [];
+    const hasRelRefs = rels.some((r) => {
+        const eff = String((r && r.effect_var) || '').trim();
+        const causes = Array.isArray(r && r.cause_vars) ? r.cause_vars : [];
+        return !!(eff || causes.filter(Boolean).length);
+    });
+    if (hasRelRefs && !names.size) {
+        return '有关系引用变量时，请先在变量表中添加对应变量';
+    }
+
     let i = 0;
-    for (const r of model.relations || []) {
+    for (const r of rels) {
         i += 1;
-        const ev = String(r.effect_var || '').trim();
+        const ev = String((r && r.effect_var) || '').trim();
         if (!ev) {
             return `第 ${i} 条关系：果变量不能为空`;
         }
@@ -1094,12 +1132,125 @@ function validateEditingModel(model) {
         }
         const causes = Array.isArray(r.cause_vars) ? r.cause_vars : [];
         for (const c of causes) {
-            if (c && !names.has(c)) {
-                return `第 ${i} 条关系：因变量「${c}」不在变量列表中`;
+            const cn = String(c || '').trim();
+            if (cn && !names.has(cn)) {
+                return `第 ${i} 条关系：因变量「${cn}」不在变量列表中`;
             }
         }
     }
     return null;
+}
+
+function syncVariableRowFromDom(idx) {
+    const mount = document.getElementById('modelVariableEditorMount');
+    if (!mount || !state.editingModel?.variables?.[idx]) return;
+    const tr = mount.querySelector(`tr[data-var-idx="${idx}"]`);
+    if (!tr) return;
+    const v = state.editingModel.variables[idx];
+    tr.querySelectorAll('[data-vfield]').forEach((inp) => {
+        const f = inp.dataset.vfield;
+        if (f === 'value_type') {
+            v.value_type = inp.value;
+        } else if (f === 'name' || f === 'description' || f === 'unit') {
+            v[f] = inp.value;
+        }
+    });
+}
+
+function renderVariableEditorTable() {
+    const mount = document.getElementById('modelVariableEditorMount');
+    if (!mount) return;
+    if (!state.editingModel) {
+        mount.innerHTML = '<p class="placeholder">请打开项目并刷新模型</p>';
+        return;
+    }
+    const vars = state.editingModel.variables || [];
+    const vtypes = ['float', 'int', 'bool', 'str'];
+    if (!vars.length) {
+        mount.innerHTML = '<p class="hint">暂无变量，可点击「添加变量」</p>';
+        refreshModelEditorGraph();
+        return;
+    }
+
+    mount.innerHTML = `
+        <table class="model-variable-editor-table">
+            <thead>
+                <tr>
+                    <th>名称</th>
+                    <th>单位</th>
+                    <th>说明</th>
+                    <th>类型</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${vars
+                    .map(
+                        (v, idx) => `
+                <tr data-var-idx="${idx}">
+                    <td><input type="text" data-vfield="name" value="${escapeHtml(v.name || '')}" /></td>
+                    <td><input type="text" data-vfield="unit" value="${escapeHtml(v.unit || '')}" /></td>
+                    <td><input type="text" data-vfield="description" value="${escapeHtml(v.description || '')}" /></td>
+                    <td>
+                        <select data-vfield="value_type">
+                            ${vtypes
+                                .map(
+                                    (t) =>
+                                        `<option value="${t}" ${(v.value_type || 'float') === t ? 'selected' : ''}>${t}</option>`,
+                                )
+                                .join('')}
+                        </select>
+                    </td>
+                    <td><button type="button" class="btn-icon del-var-btn" data-vidx="${idx}" title="删除">✕</button></td>
+                </tr>`,
+                    )
+                    .join('')}
+            </tbody>
+        </table>`;
+
+    mount.querySelectorAll('input[data-vfield],select[data-vfield]').forEach((el) => {
+        el.addEventListener('change', () => {
+            const tr = el.closest('tr[data-var-idx]');
+            if (tr) {
+                syncVariableRowFromDom(Number(tr.dataset.varIdx));
+                renderRelationEditorTable();
+                refreshModelEditorGraph();
+            }
+        });
+    });
+
+    mount.onclick = (e) => {
+        const btn = e.target.closest('.del-var-btn');
+        if (!btn || !state.editingModel) return;
+        const idx = Number(btn.dataset.vidx);
+        if (!Number.isFinite(idx)) return;
+        state.editingModel.variables.splice(idx, 1);
+        renderVariableEditorTable();
+        renderRelationEditorTable();
+    };
+
+    refreshModelEditorGraph();
+}
+
+function addEmptyVariableRow() {
+    if (!state.editingModel) {
+        showToast('请先加载模型（刷新侧栏「系统模型」）', 'warning');
+        return;
+    }
+    if (!state.editingModel.variables) state.editingModel.variables = [];
+    let base = `var_${Date.now().toString(36)}`;
+    const names = new Set(state.editingModel.variables.map((v) => String(v.name || '').trim()).filter(Boolean));
+    while (names.has(base)) {
+        base += 'x';
+    }
+    state.editingModel.variables.push({
+        name: base,
+        description: '',
+        unit: '',
+        value_type: 'float',
+    });
+    renderVariableEditorTable();
+    renderRelationEditorTable();
 }
 
 function syncRelationRowFromDom(idx) {
@@ -1151,6 +1302,7 @@ function renderRelationEditorTable() {
 
     if (!rels.length) {
         mount.innerHTML = '<p class="hint">暂无关系，可点击「添加关系」</p>';
+        refreshModelEditorGraph();
         return;
     }
 
@@ -1197,7 +1349,10 @@ function renderRelationEditorTable() {
     mount.querySelectorAll('input[data-field],select[data-field]').forEach((el) => {
         el.addEventListener('change', () => {
             const tr = el.closest('tr[data-rel-idx]');
-            if (tr) syncRelationRowFromDom(Number(tr.dataset.relIdx));
+            if (tr) {
+                syncRelationRowFromDom(Number(tr.dataset.relIdx));
+                refreshModelEditorGraph();
+            }
         });
     });
 
@@ -1209,6 +1364,8 @@ function renderRelationEditorTable() {
         state.editingModel.relations.splice(idx, 1);
         renderRelationEditorTable();
     };
+
+    refreshModelEditorGraph();
 }
 
 function addEmptyRelationRow() {
@@ -1233,26 +1390,36 @@ function addEmptyRelationRow() {
 }
 
 async function loadModelEditorFromApi() {
-    const mount = document.getElementById('modelRelationEditorMount');
-    if (!mount) return;
+    const relMount = document.getElementById('modelRelationEditorMount');
+    const varMount = document.getElementById('modelVariableEditorMount');
+    if (!relMount) return;
+
     if (!state.currentProject || !isPywebviewApiCallable()) {
         state.editingModel = null;
-        mount.innerHTML = '<p class="placeholder">请打开项目</p>';
+        relMount.innerHTML = '<p class="placeholder">请打开项目</p>';
+        if (varMount) varMount.innerHTML = '<p class="placeholder">请打开项目</p>';
+        refreshModelEditorGraph();
         return;
     }
     try {
         const m = await window.pywebview.api.get_model(state.currentProject.id);
         if (!m) {
             state.editingModel = null;
-            mount.innerHTML = '<p class="placeholder">暂无模型数据</p>';
+            relMount.innerHTML = '<p class="placeholder">暂无模型数据</p>';
+            if (varMount) varMount.innerHTML = '<p class="placeholder">暂无模型数据</p>';
+            refreshModelEditorGraph();
             return;
         }
         state.editingModel = JSON.parse(JSON.stringify(m));
         if (!state.editingModel.relations) state.editingModel.relations = [];
+        if (!state.editingModel.variables) state.editingModel.variables = [];
+        renderVariableEditorTable();
         renderRelationEditorTable();
     } catch (e) {
         console.error('[UAP] loadModelEditorFromApi', e);
-        mount.innerHTML = '<p class="error-text">加载模型失败</p>';
+        relMount.innerHTML = '<p class="error-text">加载模型失败</p>';
+        if (varMount) varMount.innerHTML = '<p class="error-text">加载模型失败</p>';
+        refreshModelEditorGraph();
     }
 }
 
@@ -1260,6 +1427,12 @@ async function saveModelFromEditor() {
     if (!state.currentProject || !state.editingModel) {
         showToast('没有可保存的模型', 'warning');
         return;
+    }
+    const vMount = document.getElementById('modelVariableEditorMount');
+    if (vMount && state.editingModel.variables) {
+        state.editingModel.variables.forEach((_, idx) => {
+            syncVariableRowFromDom(idx);
+        });
     }
     const mount = document.getElementById('modelRelationEditorMount');
     if (mount) {

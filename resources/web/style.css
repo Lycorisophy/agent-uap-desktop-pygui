@@ -1022,6 +1022,61 @@ select {
     flex-wrap: wrap;
 }
 
+.model-graph-title {
+    margin-top: 14px;
+}
+
+.model-graph-mount {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-color);
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.model-graph-mount .model-force-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 280px;
+}
+
+.model-graph-toolbar {
+    margin-bottom: 12px;
+}
+
+.model-variable-editor-mount {
+    max-height: 220px;
+    overflow: auto;
+    margin-bottom: 8px;
+}
+
+.model-variable-editor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.model-variable-editor-table th,
+.model-variable-editor-table td {
+    border: 1px solid var(--border-color);
+    padding: 4px 6px;
+    vertical-align: middle;
+}
+
+.model-variable-editor-table th {
+    background: var(--bg-color);
+    text-align: left;
+}
+
+.model-variable-editor-table input,
+.model-variable-editor-table select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    font-size: 12px;
+}
+
 .chart-placeholder {
     color: var(--text-muted);
     font-size: 14px;

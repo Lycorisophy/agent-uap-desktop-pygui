@@ -214,10 +214,20 @@
                                     </div>
                                 </div>
                                 <div class="model-editor-section" id="modelEditorSection">
+                                    <h5 class="model-editor-title">变量编辑</h5>
+                                    <p class="hint model-editor-hint">名称须唯一；保存将写入 <code>model.json</code>。</p>
+                                    <div id="modelVariableEditorMount" class="model-variable-editor-mount"></div>
+                                    <h5 class="model-editor-title model-graph-title">关系图（力导向）</h5>
+                                    <p class="hint model-editor-hint">边规则与实体图一致：每个因变量指向果变量。</p>
+                                    <div id="modelGraphMount" class="model-graph-mount"></div>
+                                    <div class="model-graph-toolbar">
+                                        <button type="button" class="btn btn-secondary btn-sm" id="relayoutGraphBtn">重新布局</button>
+                                    </div>
                                     <h5 class="model-editor-title">关系编辑（高级）</h5>
-                                    <p class="hint model-editor-hint">保存将写入 <code>model.json</code>；果变量与因变量须已出现在上方变量列表中。</p>
+                                    <p class="hint model-editor-hint">果变量与因变量须已在上方变量列表中。</p>
                                     <div id="modelRelationEditorMount" class="model-relation-editor-mount"></div>
                                     <div class="model-editor-actions">
+                                        <button type="button" class="btn btn-secondary btn-sm" id="addVariableRowBtn">添加变量</button>
                                         <button type="button" class="btn btn-secondary btn-sm" id="addRelationRowBtn">添加关系</button>
                                         <button type="button" class="btn btn-primary btn-sm" id="saveModelEditorBtn">保存模型</button>
                                     </div>
@@ -446,6 +456,7 @@
         </div>
     </div>
     <script src="visualize.js"></script>
+    <script src="model_graph.js"></script>
     <script src="app.js"></script>
     <script src="cards.js"></script>
 </body>
