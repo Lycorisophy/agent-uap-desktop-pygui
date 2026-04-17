@@ -646,6 +646,11 @@ class ProjectService:
             proj_dir = self._store.resolve_project_directory(project_id)
         skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
 
+        if getattr(self._cfg.agent, "modeling_win11_fs_skills_enabled", True):
+            from uap.react.win11_project_fs_skills import create_win11_project_fs_skill_bundle
+
+            skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
+
         if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
             skills_registry["search_knowledge"] = create_search_knowledge_skill(
                 project_id, self._knowledge
@@ -730,6 +735,11 @@ class ProjectService:
         if not proj_dir.is_dir():
             proj_dir = self._store.resolve_project_directory(project_id)
         skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
+
+        if getattr(self._cfg.agent, "modeling_win11_fs_skills_enabled", True):
+            from uap.react.win11_project_fs_skills import create_win11_project_fs_skill_bundle
+
+            skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
 
         if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
             skills_registry["search_knowledge"] = create_search_knowledge_skill(

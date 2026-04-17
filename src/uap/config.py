@@ -231,6 +231,10 @@ class AgentConfig(BaseModel):
         default=None,
         description="可选；与主 llm 按字段合并后用于意图/场景分类；None 则完全使用主 llm",
     )
+    modeling_win11_fs_skills_enabled: bool = Field(
+        default=True,
+        description="为建模 ReAct/Plan 注册 win11_* 项目内文件读写删改移技能",
+    )
 
 
 class ContextCompressionConfig(BaseModel):

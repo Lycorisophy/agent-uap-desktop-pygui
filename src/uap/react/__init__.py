@@ -38,6 +38,10 @@ from uap.react.project_kb_skill import (
     SearchKnowledgeSkill,
     create_search_knowledge_skill,
 )
+from uap.react.win11_project_fs_skills import (
+    create_win11_project_fs_skill_bundle,
+    resolve_project_path,
+)
 from uap.react.card_integration import ReactCardIntegration
 
 
@@ -106,6 +110,9 @@ __all__ = [
     # Project KB (Milvus)
     "SearchKnowledgeSkill",
     "create_search_knowledge_skill",
+    # Project workspace FS (win11_*)
+    "create_win11_project_fs_skill_bundle",
+    "resolve_project_path",
     # HITL
     "ReactCardIntegration",
     # Factory

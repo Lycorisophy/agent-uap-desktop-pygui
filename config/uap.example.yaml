@@ -108,6 +108,8 @@ agent:
   #   provider: ollama
   #   model: qwen2.5:1.5b
   #   base_url: ""
+  # 建模时注册 win11_read_file / write / delete / modify / move（项目工作区内）
+  modeling_win11_fs_skills_enabled: true
   # 内置定时任务（默认开启，用于自动预测）
   builtin_scheduler_enabled: true
 
