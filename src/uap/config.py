@@ -249,6 +249,12 @@ class AgentConfig(BaseModel):
             "默认 1 表示首轮追问后即结束本轮（HITL），避免同轮无用户输入的死循环追问。"
         ),
     )
+    ask_user_card_timeout_seconds: int = Field(
+        default=120,
+        ge=10,
+        le=900,
+        description="建模追问卡片（ASK_USER）过期时间（秒），超时视为拒绝并仅写会话、不调 LLM",
+    )
 
 
 class ContextCompressionConfig(BaseModel):

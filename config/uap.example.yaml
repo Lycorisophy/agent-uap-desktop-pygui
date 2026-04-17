@@ -101,6 +101,8 @@ agent:
   react_max_steps_default: 8
   # 单次用户发送（一次 modeling_chat）内允许的成功 ask_user 次数；默认 1 表示一问后暂停，等用户下一条消息（与 LangGraph 路由一致）
   react_max_ask_user_per_turn: 1
+  # 建模追问卡片（ASK_USER）过期秒数；超时视为拒绝并仅写会话、不调 LLM（10–900）
+  ask_user_card_timeout_seconds: 120
   # ReAct / Plan 单次建模墙钟上限（秒），避免长时间 ask_user 等导致裸 timeout
   react_max_time_seconds: 300
   plan_max_time_seconds: 300

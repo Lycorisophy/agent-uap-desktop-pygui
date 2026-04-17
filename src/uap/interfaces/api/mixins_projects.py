@@ -257,6 +257,7 @@ class ProjectsApiMixin:
                 "steps": result.get("steps", []),
                 "dst_state": dst_state,
                 "pending_card": result.get("pending_card"),
+                "pending_ask_user_card": result.get("pending_ask_user_card"),
                 "success": result.get("success", False),
                 "pending_user_input": result.get("pending_user_input", False),
                 "tool_calls": result.get("tool_calls", 0),
@@ -274,8 +275,10 @@ class ProjectsApiMixin:
         建模对话（同步一次返回）。
 
         成功时返回字段含 ``message``、``steps``、``dst_state``、``success``、
-        ``pending_user_input``（本轮是否在 ``ask_user`` 后等待用户下一条消息）、
-        ``mode_used`` 等。渐进式输出请用 ``start_modeling_chat_stream`` /
+        ``pending_user_input``（本轮 ReAct 图已结束；若末步为 ``ask_user`` 则等待用户
+        下一条消息再开新轮，并非在同一次 ``invoke`` 内挂起）、
+        ``pending_ask_user_card``（可选，追问 IM 卡片数据）、``mode_used`` 等。
+        渐进式输出请用 ``start_modeling_chat_stream`` /
         ``poll_modeling_chat_stream``。
         ``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。
         """
@@ -309,7 +312,8 @@ class ProjectsApiMixin:
         """
         启动后台建模会话并立即返回 ``stream_id``。
         前端轮询 ``poll_modeling_chat_stream`` 拉取 LLM token；``done`` 为真时
-        ``result`` 与同步 ``modeling_chat`` 成功返回结构一致（含 ``pending_user_input``）。
+        ``result`` 与同步 ``modeling_chat`` 成功返回结构一致（含 ``pending_user_input``、
+        ``pending_ask_user_card``）。
         """
         _LOG.info(
             "[API] start_modeling_chat_stream: project_id=%s, message_len=%d, mode=%s",

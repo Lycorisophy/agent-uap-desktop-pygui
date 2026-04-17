@@ -28,6 +28,9 @@ class CardType(str, Enum):
     # 技能相关
     SKILL_SELECTION = "skill_selection"         # 技能选择
     SKILL_SAVE_PROMPT = "skill_save_prompt"   # 技能保存提示
+
+    # 建模对话追问（ReAct ask_user，与模型确认卡区分）
+    ASK_USER = "ask_user"
     
     # 高风险操作
     HIGH_RISK_CONFIRM = "high_risk_confirm"   # 高风险操作确认

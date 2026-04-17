@@ -64,8 +64,8 @@ class CardManager:
     
     def get_pending_cards(self) -> list[ConfirmationCard]:
         """获取所有待处理的卡片"""
+        self._cleanup_expired()
         with self._lock:
-            self._cleanup_expired()
             return list(self._pending_cards.values())
     
     def get_card(self, card_id: str) -> Optional[ConfirmationCard]:
@@ -75,33 +75,68 @@ class CardManager:
     
     def get_pending_card_for_project(self, project_id: str) -> Optional[ConfirmationCard]:
         """获取指定项目的待处理卡片"""
+        self._cleanup_expired()
         with self._lock:
-            self._cleanup_expired()
             for card in self._pending_cards.values():
                 if card.context.get("project_id") == project_id:
+                    return card
+            return None
+
+    def get_pending_ask_user_card_for_project(
+        self, project_id: str
+    ) -> Optional[ConfirmationCard]:
+        """优先返回建模追问卡（ASK_USER），避免与其它 pending 混淆。"""
+        self._cleanup_expired()
+        with self._lock:
+            for card in self._pending_cards.values():
+                if (
+                    card.card_type == CardType.ASK_USER
+                    and str(card.context.get("project_id") or "") == str(project_id)
+                ):
                     return card
             return None
     
     def has_pending_card(self, project_id: Optional[str] = None) -> bool:
         """检查是否有待处理的卡片"""
+        self._cleanup_expired()
         with self._lock:
-            self._cleanup_expired()
             if project_id is None:
                 return len(self._pending_cards) > 0
-            return self.get_pending_card_for_project(project_id) is not None
+            for card in self._pending_cards.values():
+                if card.context.get("project_id") == project_id:
+                    return True
+            return False
     
-    def _cleanup_expired(self):
-        """清理过期的卡片"""
+    def _cleanup_expired(self) -> None:
+        """清理过期卡片；追问卡（ASK_USER）走正式响应以触发回调写会话。"""
         now = datetime.now()
-        expired_ids = [
-            card_id for card_id, card in self._pending_cards.items()
-            if card.expires_at and card.expires_at < now
-        ]
+        with self._lock:
+            expired_ids = [
+                card_id
+                for card_id, card in self._pending_cards.items()
+                if card.expires_at and card.expires_at < now
+            ]
         for card_id in expired_ids:
-            del self._pending_cards[card_id]
-            if card_id in self._waiting_threads:
-                self._waiting_threads[card_id].set()  # 释放等待线程
-                del self._waiting_threads[card_id]
+            with self._lock:
+                card = self._pending_cards.get(card_id)
+            if card is None:
+                continue
+            if card.card_type == CardType.ASK_USER:
+                pid = (card.context or {}).get("project_id") or ""
+                self.submit_response(
+                    CardResponse(
+                        card_id=card_id,
+                        selected_option_id="__timeout__",
+                        metadata={"reason": "timeout", "project_id": str(pid)},
+                    )
+                )
+            else:
+                with self._lock:
+                    if card_id in self._pending_cards:
+                        del self._pending_cards[card_id]
+                    if card_id in self._waiting_threads:
+                        self._waiting_threads[card_id].set()
+                        del self._waiting_threads[card_id]
     
     def wait_for_response(
         self,
@@ -146,24 +181,32 @@ class CardManager:
             if card is None:
                 return False
             
-            # 保存响应
-            self._responses[response.card_id] = response
-            
-            # 从待处理移除
+            md = dict(response.metadata or {})
+            ctx = getattr(card, "context", None) or {}
+            if ctx.get("project_id") and not md.get("project_id"):
+                md["project_id"] = str(ctx["project_id"])
+            response_for_cb = CardResponse(
+                card_id=response.card_id,
+                selected_option_id=response.selected_option_id,
+                timestamp=response.timestamp,
+                metadata=md,
+            )
+            self._responses[response.card_id] = response_for_cb
+
             del self._pending_cards[response.card_id]
-            
-            # 添加到历史
+
             self._card_history.append(card)
-            
-            # 释放等待线程
+
             if response.card_id in self._waiting_threads:
                 self._waiting_threads[response.card_id].set()
                 del self._waiting_threads[response.card_id]
-            
-            # 触发回调
-            self._trigger_callbacks(card.card_type, response)
-            
-            return True
+
+            cb_type = card.card_type
+            cb_resp = response_for_cb
+
+        self._trigger_callbacks(cb_type, cb_resp)
+
+        return True
     
     def dismiss_card(self, card_id: str, reason: str = "dismissed") -> bool:
         """关闭卡片（用户主动关闭）"""

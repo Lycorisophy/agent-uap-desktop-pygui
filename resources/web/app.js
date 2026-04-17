@@ -1496,6 +1496,261 @@ async function appendModelingAssistantWithTrace(response) {
     }
 
     await runTypewriterEffect(target, summary, container);
+    const inner = wrap.querySelector('.modeling-response-inner');
+    if (
+        inner &&
+        response.pending_ask_user_card &&
+        state.currentProject &&
+        isPywebviewApiCallable()
+    ) {
+        try {
+            mountInlineAskUserCard(inner, response.pending_ask_user_card, state.currentProject.id);
+        } catch (e) {
+            console.error('[modeling] 追问卡片挂载失败:', e);
+        }
+    }
+}
+
+/**
+ * 建模追问 IM 卡片：默认选项、手输、提交后 modeling_chat；拒绝/超时由后端处理。
+ */
+function mountInlineAskUserCard(containerEl, card, projectId) {
+    if (!containerEl || !card || !card.card_id) return;
+    if (containerEl.querySelector('.uap-ask-user-card')) return;
+
+    const cardId = String(card.card_id);
+    const title = escapeHtml(card.title || '需要你的确认');
+    const content = escapeHtml(card.content || '').replace(/\n/g, '<br>');
+    const opts = Array.isArray(card.options) ? card.options : [];
+    const defaultId = card.default_option_id != null ? String(card.default_option_id) : '';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'uap-ask-user-card';
+    wrap.dataset.cardId = cardId;
+
+    let optionsHtml = '';
+    opts.forEach((o) => {
+        const oid = escapeHtml(String(o.id != null ? o.id : ''));
+        const lab = escapeHtml(String(o.label || o.id || ''));
+        const sel =
+            oid === defaultId ? ' is-default is-selected' : '';
+        optionsHtml += `<button type="button" class="uap-ask-user-opt${sel}" data-opt-id="${oid}">${lab}</button>`;
+    });
+
+    wrap.innerHTML = `
+        <div class="uap-ask-user-card-title">${title}</div>
+        <div class="uap-ask-user-card-body">${content}</div>
+        <div class="uap-ask-user-card-options">${optionsHtml}</div>
+        <input type="text" class="uap-ask-user-custom" placeholder="或手动输入回答…" autocomplete="off" />
+        <div class="uap-ask-user-card-actions">
+            <button type="button" class="btn btn-primary uap-ask-user-submit">提交</button>
+            <button type="button" class="btn btn-secondary uap-ask-user-reject">拒绝</button>
+        </div>
+        <div class="uap-ask-user-countdown hint"></div>
+    `;
+    containerEl.appendChild(wrap);
+
+    const optButtons = wrap.querySelectorAll('.uap-ask-user-opt');
+    const customInp = wrap.querySelector('.uap-ask-user-custom');
+    const btnSub = wrap.querySelector('.uap-ask-user-submit');
+    const btnRej = wrap.querySelector('.uap-ask-user-reject');
+    const cdEl = wrap.querySelector('.uap-ask-user-countdown');
+
+    function getMode() {
+        const sel = document.getElementById('modelingModeSelect');
+        return sel && sel.value ? sel.value : 'auto';
+    }
+
+    function labelForId(id) {
+        const o = opts.find((x) => String(x.id) === String(id));
+        return o ? String(o.label || o.id) : String(id);
+    }
+
+    optButtons.forEach((b) => {
+        b.addEventListener('click', () => {
+            optButtons.forEach((x) => x.classList.remove('is-selected'));
+            b.classList.add('is-selected');
+            if (customInp) customInp.value = '';
+        });
+    });
+
+    let cdTimer = null;
+    if (card.expires_at && cdEl) {
+        const expMs = new Date(card.expires_at).getTime();
+        const tick = () => {
+            const left = Math.max(0, Math.floor((expMs - Date.now()) / 1000));
+            cdEl.textContent = left > 0 ? `剩余 ${left} 秒后将视为超时拒绝（不调模型）` : '';
+            if (left <= 0 && cdTimer) {
+                clearInterval(cdTimer);
+                cdTimer = null;
+            }
+        };
+        tick();
+        cdTimer = setInterval(tick, 1000);
+    }
+
+    function disableAll() {
+        optButtons.forEach((b) => {
+            b.disabled = true;
+        });
+        if (customInp) customInp.disabled = true;
+        if (btnSub) btnSub.disabled = true;
+        if (btnRej) btnRej.disabled = true;
+        if (cdTimer) clearInterval(cdTimer);
+    }
+
+    if (btnRej) {
+        btnRej.addEventListener('click', async () => {
+            if (!window.pywebview?.api?.reject_pending_ask_user) {
+                showToast('当前版本不支持拒绝追问 API', 'warning');
+                return;
+            }
+            disableAll();
+            try {
+                const r = await window.pywebview.api.reject_pending_ask_user(projectId, 'user_rejected');
+                if (r && r.ok) {
+                    showToast('已拒绝追问', 'success');
+                } else {
+                    showToast((r && r.message) || '拒绝失败', 'warning');
+                }
+            } catch (e) {
+                showToast('拒绝失败: ' + (e.message || e), 'error');
+            }
+        });
+    }
+
+    if (btnSub) {
+        btnSub.addEventListener('click', async () => {
+            const custom = (customInp && customInp.value.trim()) || '';
+            const selectedBtn = wrap.querySelector('.uap-ask-user-opt.is-selected');
+            const optId = selectedBtn ? selectedBtn.getAttribute('data-opt-id') : '';
+
+            if (!custom && !optId) {
+                showToast('请选择一项或输入回答', 'warning');
+                return;
+            }
+            if (optId === '__reject__') {
+                if (btnRej) btnRej.click();
+                return;
+            }
+
+            disableAll();
+            try {
+                if (custom) {
+                    const sr = await window.pywebview.api.submit_card_response(
+                        cardId,
+                        '__custom__'
+                    );
+                    if (!sr || !sr.success) {
+                        showToast('关闭追问卡片失败', 'error');
+                        return;
+                    }
+                    await sendModelingMessageRaw(projectId, custom, getMode());
+                } else if (optId) {
+                    const sr = await window.pywebview.api.submit_card_response(cardId, optId);
+                    if (!sr || !sr.success) {
+                        showToast('提交选项失败', 'error');
+                        return;
+                    }
+                    const msg = `用户选择：${labelForId(optId)}`;
+                    await sendModelingMessageRaw(projectId, msg, getMode());
+                }
+            } catch (e) {
+                showToast('提交失败: ' + (e.message || e), 'error');
+            }
+        });
+    }
+}
+
+/** 内部：展示用户气泡后发起 modeling_chat（与主发送按钮一致，由 API 持久化 user） */
+async function sendModelingMessageRaw(projectId, message, mode) {
+    if (!isPywebviewApiCallable()) return;
+    appendChatMessage({
+        type: 'user',
+        content: message,
+        timestamp: new Date().toISOString()
+    });
+    const loadingId = 'loading-' + Date.now();
+    appendChatMessage({
+        type: 'loading',
+        id: loadingId,
+        content: '正在分析...'
+    });
+    try {
+        let response = null;
+        if (isModelingStreamApiAvailable()) {
+            const startResp = await window.pywebview.api.start_modeling_chat_stream(
+                projectId,
+                message,
+                mode
+            );
+            if (!startResp || !startResp.ok || !startResp.stream_id) {
+                removeLoadingMessage(loadingId);
+                showToast((startResp && (startResp.error || startResp.message)) || '流式启动失败', 'error');
+                return;
+            }
+            const sid = startResp.stream_id;
+            let streamTextEl = null;
+            let streamBuf = '';
+            for (;;) {
+                const pr = await window.pywebview.api.poll_modeling_chat_stream(sid);
+                if (!pr) {
+                    await uapSleepMs(100);
+                    continue;
+                }
+                const batch = Array.isArray(pr.tokens) ? pr.tokens.join('') : '';
+                if (batch) {
+                    if (!streamTextEl) {
+                        removeLoadingMessage(loadingId);
+                        streamTextEl = appendModelingStreamLiveBubble(sid);
+                    }
+                    streamBuf += batch;
+                    if (streamTextEl) streamTextEl.textContent = streamBuf;
+                    const c = document.getElementById('chatMessages');
+                    if (c) c.scrollTop = c.scrollHeight;
+                }
+                if (pr.done) {
+                    if (!streamTextEl) removeLoadingMessage(loadingId);
+                    removeModelingStreamLiveBubbles();
+                    const res = pr.result;
+                    if (!pr.ok) {
+                        showToast(String(pr.error || '流异常'), 'error');
+                        break;
+                    }
+                    if (res && res.ok) {
+                        response = res;
+                    } else {
+                        const em =
+                            pr.error ||
+                            (res && res.message != null ? String(res.message) : '') ||
+                            '建模失败';
+                        showToast(em, 'error');
+                    }
+                    break;
+                }
+                await uapSleepMs(90);
+            }
+        } else {
+            try {
+                response = await window.pywebview.api.modeling_chat(projectId, message, mode);
+            } finally {
+                removeLoadingMessage(loadingId);
+            }
+        }
+        await uapYieldToPaint();
+        if (response && response.ok) {
+            await appendModelingAssistantWithTrace(response);
+            if (response.model) window.uapAPI.onModelExtracted(response.model);
+        } else if (response) {
+            await appendAssistantTypewriter(
+                response.message != null ? String(response.message) : '建模失败',
+                new Date().toISOString()
+            );
+        }
+    } catch (e) {
+        removeLoadingMessage(loadingId);
+        showToast('建模失败: ' + (e.message || e), 'error');
+    }
 }
 
 function uapYieldToPaint() {

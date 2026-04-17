@@ -13,6 +13,28 @@ class CardsApiMixin:
         card = self.card_manager.get_pending_card_for_project(project_id)
         return card.to_dict() if card else None
 
+    def get_pending_ask_user_card(self, project_id: str) -> Optional[dict]:
+        """返回当前项目待处理的建模追问卡（ASK_USER），无则 None。"""
+        card = self.card_manager.get_pending_ask_user_card_for_project(project_id)
+        return card.to_dict() if card else None
+
+    def reject_pending_ask_user(self, project_id: str, reason: str = "user_rejected") -> dict:
+        """
+        显式拒绝待处理追问卡：提交拒绝语义、触发仅写会话回调，不调用建模 LLM。
+        """
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "message": "Invalid project ID"}
+        card = self.card_manager.get_pending_ask_user_card_for_project(project_id)
+        if card is None:
+            return {"ok": False, "message": "no_pending_ask_user_card"}
+        response = CardResponse(
+            card_id=card.card_id,
+            selected_option_id="__reject__",
+            metadata={"reason": str(reason or "user_rejected"), "project_id": project_id},
+        )
+        ok = self.card_manager.submit_response(response)
+        return {"ok": ok, "card_id": card.card_id}
+
     def get_all_pending_cards(self) -> list[dict]:
         """Get all pending cards"""
         cards = self.card_manager.get_pending_cards()

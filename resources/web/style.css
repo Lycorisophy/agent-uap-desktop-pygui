@@ -457,6 +457,67 @@ select {
     margin-top: 4px;
 }
 
+/* 建模追问内联卡片（ASK_USER） */
+.uap-ask-user-card {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: var(--radius-md, 8px);
+    background: #f8fafc;
+    max-width: 100%;
+}
+.uap-ask-user-card-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #1e293b;
+}
+.uap-ask-user-card-body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+    margin-bottom: 10px;
+}
+.uap-ask-user-card-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.uap-ask-user-opt {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+}
+.uap-ask-user-opt.is-default {
+    border-color: #6366f1;
+}
+.uap-ask-user-opt.is-selected {
+    background: #eef2ff;
+    border-color: #6366f1;
+}
+.uap-ask-user-custom {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+.uap-ask-user-card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.uap-ask-user-countdown {
+    font-size: 12px;
+    color: #64748b;
+}
+
 .modeling-trace {
     display: flex;
     flex-direction: column;

@@ -84,7 +84,10 @@ class ReactResult(BaseModel):
     success: bool  # 是否以 FINAL_ANSWER 正常结束（提前超时/异常则为 False）
     pending_user_input: bool = Field(
         default=False,
-        description="本轮以 ask_user 结束且等待用户在下一条消息中回复（HITL）",
+        description=(
+            "本轮 ReAct 图已结束；末步为 ask_user 时需在用户下一条消息中继续（新 invoke），"
+            "非同一次图内暂停"
+        ),
     )
     session_id: str  # 与 DST、卡片、项目日志关联的主键
     steps: list[ReactStep] = Field(default_factory=list)

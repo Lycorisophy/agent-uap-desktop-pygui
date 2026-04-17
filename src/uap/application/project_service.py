@@ -35,6 +35,7 @@ from uap.project.models import (
     Variable,
     Relation,
 )
+from uap.react.ask_user_card import build_ask_user_confirmation_card
 from uap.react.context_helpers import format_system_model_for_prompt
 
 _LOG = logging.getLogger("uap.project_service")
@@ -678,6 +679,27 @@ class ProjectService:
         _LOG.info("[Modeling/ReAct] done success=%s steps=%d", result.success, result.total_steps)
 
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
+        pending_ask_user_card: dict | None = None
+        if (
+            card_manager
+            and result.pending_user_input
+            and result.steps
+            and result.steps[-1].action == "ask_user"
+            and not result.steps[-1].is_error
+        ):
+            last = result.steps[-1]
+            ttl = int(getattr(self._cfg.agent, "ask_user_card_timeout_seconds", 120) or 120)
+            ttl = max(10, min(900, ttl))
+            ask_card = build_ask_user_confirmation_card(
+                project_id,
+                result.session_id,
+                last.step_id,
+                dict(last.action_input or {}),
+                expires_in_seconds=ttl,
+            )
+            card_manager.create_card(ask_card)
+            pending_ask_user_card = ask_card.to_dict()
+
         pending_card = None
         if model and card_integration and (model.variables or model.relations):
             pending_card = card_integration.create_model_confirm_card(
@@ -701,6 +723,7 @@ class ProjectService:
             "steps": [s.model_dump() for s in result.steps],
             "dst_state": result.dst_state,
             "pending_card": pending_card,
+            "pending_ask_user_card": pending_ask_user_card,
             "success": result.success,
             "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
