@@ -180,7 +180,7 @@ class ProjectsApiMixin:
         )
 
         if result.get("ok"):
-            response_message = result.get("message", "建模完成")
+            response_message = result.get("message") or "本轮建模会话已结束。"
 
             steps_info = ""
             if result.get("steps"):
@@ -259,6 +259,7 @@ class ProjectsApiMixin:
                 "pending_card": result.get("pending_card"),
                 "pending_ask_user_card": result.get("pending_ask_user_card"),
                 "success": result.get("success", False),
+                "modeling_substantive": bool(result.get("modeling_substantive", False)),
                 "pending_user_input": result.get("pending_user_input", False),
                 "tool_calls": result.get("tool_calls", 0),
                 "mode_used": result.get("mode_used"),

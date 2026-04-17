@@ -1483,14 +1483,39 @@ function renderModelingProcessPanel(response) {
 
     const ok = response && response.ok !== false;
     const success = !!(response && response.success);
+    const pendingIn = !!(response && response.pending_user_input);
+    const m = response && response.model;
+    const substantiveFromModel =
+        m &&
+        typeof m === 'object' &&
+        ((Array.isArray(m.variables) && m.variables.length > 0) ||
+            (Array.isArray(m.relations) && m.relations.length > 0) ||
+            (Array.isArray(m.constraints) && m.constraints.length > 0));
+    const substantive =
+        !!(response && response.modeling_substantive) || substantiveFromModel;
+
     let st = 'idle';
-    if (!ok) st = 'error';
-    else if (success) st = 'completed';
-    else st = 'completed';
+    let badgeText = '空闲';
+    if (!ok) {
+        st = 'error';
+        badgeText = '错误';
+    } else if (pendingIn) {
+        st = 'running';
+        badgeText = '待您回复';
+    } else if (success && substantive) {
+        st = 'completed';
+        badgeText = '已完成';
+    } else if (success) {
+        st = 'partial';
+        badgeText = '已结束';
+    } else {
+        st = 'partial';
+        badgeText = '已结束';
+    }
 
     if (badge) {
         badge.className = `status-badge ${st}`;
-        badge.textContent = { idle: '空闲', running: '运行中', completed: '已结束', error: '错误' }[st] || st;
+        badge.textContent = badgeText;
     }
 
     const mu = ((response && response.mode_used) || '').toString().trim().toLowerCase();

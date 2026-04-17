@@ -1801,6 +1801,11 @@ select {
     color: #059669;
 }
 
+.status-badge.partial {
+    background: #f1f5f9;
+    color: #475569;
+}
+
 .status-badge.error {
     background: #fee2e2;
     color: var(--danger-color);

@@ -183,7 +183,11 @@ def test_react_graph_two_decide_rounds_when_max_ask_user_per_turn_is_two() -> No
 
 def test_react_graph_stream_invokes_token_callback() -> None:
     """decide 在提供 _on_llm_token 且模型支持 stream 时走流式路径。"""
-    pieces = [AIMessageChunk(content="hel"), AIMessageChunk(content="lo")]
+    final_text = "Thought: x\nFINAL_ANSWER: ok\n"
+    pieces = [
+        AIMessageChunk(content=final_text[:8]),
+        AIMessageChunk(content=final_text[8:]),
+    ]
 
     m = MagicMock(spec=BaseChatModel)
     m.bind_tools = lambda *a, **k: m
@@ -203,10 +207,9 @@ def test_react_graph_stream_invokes_token_callback() -> None:
         max_time_seconds=60.0,
     )
     r = agent.run("x", {"_on_llm_token": on_t})
-    assert "".join(tokens) == "hello"
+    assert "".join(tokens) == final_text
     assert m.stream.called
     assert not m.invoke.called
-    # 流式合并后的纯文本无 Thought/Action 行时，解析器会把空 action 视为结束路径之一
     assert r.steps[-1].action == "FINAL_ANSWER"
 
 

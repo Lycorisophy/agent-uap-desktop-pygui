@@ -715,6 +715,7 @@ class ProjectService:
             project = self._store.update_project(project)
             self._store.save_model(project_id, model)
 
+        substantive = self._modeling_snapshot_substantive(model)
         return {
             "ok": True,
             "message": self._generate_response_message(result, model),
@@ -725,6 +726,7 @@ class ProjectService:
             "pending_card": pending_card,
             "pending_ask_user_card": pending_ask_user_card,
             "success": result.success,
+            "modeling_substantive": substantive,
             "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
         }
@@ -812,6 +814,7 @@ class ProjectService:
             if st.tool_name
             and str(getattr(st.status, "value", st.status)) == "completed"
         )
+        substantive = self._modeling_snapshot_substantive(model)
         return {
             "ok": True,
             "message": self._generate_response_message(result, model),
@@ -822,6 +825,7 @@ class ProjectService:
             "dst_state": result.dst_state,
             "pending_card": pending_card,
             "success": result.success,
+            "modeling_substantive": substantive,
             "tool_calls": tool_calls,
             "replan_count": result.replan_count,
         }
@@ -1116,6 +1120,18 @@ class ProjectService:
                 parts.append(f"（共 {len(opts)} 个选项，您可在下一条消息中直接回复选择或补充说明。）")
             break
 
+    @staticmethod
+    def _modeling_snapshot_substantive(model: Optional[SystemModel]) -> bool:
+        """是否已有可展示/可保存的结构化建模快照（变量、关系或约束）。"""
+        if not model:
+            return False
+        if getattr(model, "variables", None):
+            return len(model.variables) > 0
+        if getattr(model, "relations", None):
+            return len(model.relations) > 0
+        cons = getattr(model, "constraints", None) or []
+        return len(cons) > 0
+
     def _append_plan_failure_excerpt(self, result: Any, parts: list[str]) -> None:
         plan = getattr(result, "plan", None) or []
         if not plan:
@@ -1146,10 +1162,15 @@ class ProjectService:
                 parts.append(f"已识别 {len(model.variables)} 个变量")
             if model.relations:
                 parts.append(f"发现 {len(model.relations)} 个关系")
+            if model.constraints:
+                parts.append(f"已记录 {len(model.constraints)} 条约束")
             if parts:
                 return "建模进度：" + "，".join(parts) + "。"
         if result.success:
-            return "建模完成。"
+            return (
+                "本轮推理已结束，但尚未沉淀出可保存的结构化变量、关系或约束。"
+                "若需继续建模，请补充：预测对象、时间范围、数据文件/接口或上传文档。"
+            )
 
         code = getattr(result, "error_message", None) or ""
         hint = self._format_modeling_error_hint(str(code).strip() or None)

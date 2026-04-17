@@ -200,7 +200,8 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         action = (parsed.get("action") or "").strip()
         action_input = parsed.get("action_input") or {}
 
-        if action in ("", "FINAL_ANSWER") or parsed.get("final_answer") is not None:
+        # 空 action 不得视为成功结束（否则未产出有效决策也会标记 success）
+        if action == "FINAL_ANSWER" or parsed.get("final_answer") is not None:
             fin = ReactStep(
                 step_id=step_id,
                 thought=thought,
