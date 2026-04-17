@@ -7,7 +7,10 @@ from typing import Optional
 
 from uap.project.models import ProjectStatus, SystemModel
 
-from uap.application.modeling_intent_classifier import run_modeling_intent_scene_if_enabled
+from uap.application.modeling_intent_classifier import (
+    build_modeling_task_with_prior_dialogue,
+    run_modeling_intent_scene_if_enabled,
+)
 from uap.interfaces.api._log import _LOG
 
 
@@ -86,6 +89,56 @@ class ProjectsApiMixin:
             project_id, messages, user_prompt
         )
 
+    def get_modeling_messages(self, project_id: str) -> dict:
+        """读取当前项目建模活跃会话消息（项目空间 ``conversations/active.json``）。"""
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "error": "Invalid project ID", "messages": []}
+        try:
+            msgs = self.project_store.load_messages(project_id)
+            return {"ok": True, "messages": msgs}
+        except Exception as e:
+            _LOG.exception("[API] get_modeling_messages: %s", e)
+            return {"ok": False, "error": str(e), "messages": []}
+
+    def start_new_modeling_conversation(self, project_id: str) -> dict:
+        """归档非空当前会话并清空活跃消息。"""
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "error": "Invalid project ID"}
+        try:
+            sid = self.project_store.archive_active_conversation_and_clear(project_id)
+            return {"ok": True, "archived_session_id": sid}
+        except Exception as e:
+            _LOG.exception("[API] start_new_modeling_conversation: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    def list_modeling_conversation_history(self, project_id: str) -> dict:
+        """列出建模历史会话摘要。"""
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "error": "Invalid project ID", "items": []}
+        try:
+            items = self.project_store.list_modeling_conversation_history(project_id)
+            return {"ok": True, "items": items}
+        except Exception as e:
+            _LOG.exception("[API] list_modeling_conversation_history: %s", e)
+            return {"ok": False, "error": str(e), "items": []}
+
+    def restore_modeling_conversation(self, project_id: str, session_id: str) -> dict:
+        """从历史恢复为当前活跃会话。"""
+        if not project_id or project_id == "undefined":
+            return {"ok": False, "error": "Invalid project ID", "messages": []}
+        if not session_id or not str(session_id).strip():
+            return {"ok": False, "error": "Invalid session ID", "messages": []}
+        try:
+            msgs = self.project_store.restore_modeling_conversation(
+                project_id, str(session_id).strip()
+            )
+            return {"ok": True, "messages": msgs}
+        except FileNotFoundError as e:
+            return {"ok": False, "error": str(e), "messages": []}
+        except Exception as e:
+            _LOG.exception("[API] restore_modeling_conversation: %s", e)
+            return {"ok": False, "error": str(e), "messages": []}
+
     def modeling_chat(self, project_id: str, message: str, mode: str | None = None) -> dict:
         """建模对话；``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。"""
         _LOG.info(
@@ -115,13 +168,17 @@ class ProjectsApiMixin:
             if effective_mode is None or not str(effective_mode).strip():
                 effective_mode = self.config.agent.modeling_agent_mode or "react"
 
+            prior = messages[:-1] if len(messages) > 1 else []
+            task_for_agent = build_modeling_task_with_prior_dialogue(prior, message)
+
             result = self.project_service.react_modeling(
                 project_id=project_id,
-                user_message=message,
+                user_message=task_for_agent,
                 card_manager=self.card_manager,
                 web_search_func=self._get_web_search_func(),
                 mode=str(effective_mode).strip().lower(),
                 intent_scene=intent_scene if intent_scene else None,
+                original_user_message=message,
             )
             _LOG.info(
                 "[API] modeling result: ok=%s, success=%s, mode_used=%s",

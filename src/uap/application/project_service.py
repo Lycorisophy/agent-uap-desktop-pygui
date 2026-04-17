@@ -804,12 +804,14 @@ class ProjectService:
         web_search_func=None,
         mode: str | None = None,
         intent_scene: dict | None = None,
+        original_user_message: str | None = None,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
 
         Args:
             mode: ``react`` | ``plan`` | ``auto``；为 ``None`` 或空时使用 ``UapConfig.agent.modeling_agent_mode``。
+            original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
         """
         try:
             project = self._store.get_project(project_id)
@@ -824,8 +826,13 @@ class ProjectService:
                 _LOG.warning("[Modeling] Unknown mode %r, using react", mode_requested)
                 mode_requested = "react"
 
+            mode_decision_line = (
+                original_user_message
+                if (original_user_message is not None and str(original_user_message).strip())
+                else user_message
+            )
             if mode_requested == "auto":
-                mode_used = self._decide_mode_by_task(user_message, context, chat_model)
+                mode_used = self._decide_mode_by_task(mode_decision_line, context, chat_model)
             else:
                 mode_used = mode_requested
 

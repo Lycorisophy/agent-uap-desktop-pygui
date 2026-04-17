@@ -76,6 +76,61 @@ def format_messages_for_classifier(messages: list[dict], rounds: int) -> str:
     return "\n\n".join(lines)
 
 
+MODELING_PRIOR_DIALOGUE_MAX_CHARS = 12000
+
+
+def format_prior_messages_dialogue_block(
+    prior_messages: list[dict],
+    *,
+    max_chars: int = MODELING_PRIOR_DIALOGUE_MAX_CHARS,
+) -> str:
+    """
+    将「当前用户句之前」的消息格式化为可读块，供 ReAct/Plan 主任务文本使用。
+    超长时保留尾部，避免丢失最近上下文。
+    """
+    lines: list[str] = []
+    for m in prior_messages:
+        if not isinstance(m, dict):
+            continue
+        role = (m.get("role") or "").strip().lower()
+        if role not in ("user", "assistant"):
+            continue
+        label = "用户" if role == "user" else "助手"
+        text = (m.get("content") or "").strip()
+        if len(text) > 8000:
+            text = text[:7999] + "…"
+        lines.append(f"[{label}] {text}")
+    block = "\n\n".join(lines).strip()
+    if not block:
+        return ""
+    if len(block) <= max_chars:
+        return block
+    tail = block[-(max_chars - 24) :].lstrip()
+    return "…（前段已省略）\n\n" + tail
+
+
+def build_modeling_task_with_prior_dialogue(
+    prior_messages: list[dict],
+    latest_user_message: str,
+    *,
+    max_prior_chars: int = MODELING_PRIOR_DIALOGUE_MAX_CHARS,
+) -> str:
+    """将历史对话与本轮用户输入合并为传给主建模智能体的任务描述。"""
+    last = (latest_user_message or "").strip()
+    block = format_prior_messages_dialogue_block(
+        prior_messages, max_chars=max_prior_chars
+    )
+    if not block:
+        return last
+    return (
+        "【此前对话（理解上下文；请在本轮用户输入基础上继续）】\n"
+        f"{block}\n\n"
+        "---\n\n"
+        "【本轮用户输入】\n"
+        f"{last}"
+    )
+
+
 def _extract_json_object(text: str) -> dict[str, Any] | None:
     raw = (text or "").strip()
     if not raw:

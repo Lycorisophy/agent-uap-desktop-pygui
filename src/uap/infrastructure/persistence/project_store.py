@@ -9,13 +9,17 @@ UAP 项目存储模块
   - predictions/ 目录: 预测结果
   - data/ 目录: 原始数据
   - documents/ 目录: 导入的文档
-  - messages.json: 对话历史
+  - messages.json: 旧版对话历史（迁移后可为空；权威数据在项目空间 conversations/）
+- 用户项目空间 ``{workspace}/conversations/``：
+  - active.json: 当前建模会话消息
+  - history/{session_id}.json: 归档会话
 """
 
 from __future__ import annotations
 
 import json
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -43,12 +47,15 @@ def user_workspace_dir(project_id: str) -> Path:
 
 class ProjectStore:
     """项目存储管理器"""
-    
+
     PREDICTIONS_DIR = "predictions"
     DATA_DIR = "data"
     DOCUMENTS_DIR = "documents"
     MESSAGES_FILE = "messages.json"
     TASKS_FILE = "prediction_tasks.json"
+    CONVERSATIONS_DIR = "conversations"
+    ACTIVE_CONVERSATION_FILE = "active.json"
+    HISTORY_DIR = "history"
     
     def __init__(self, root: Path | str, uap_cfg: Optional["UapConfig"] = None) -> None:
         self._root = Path(root) if isinstance(root, str) else root
@@ -65,9 +72,9 @@ class ProjectStore:
 
     def resolve_project_directory(self, project_id: str) -> Path:
         """
-        项目磁盘根目录（meta.json、messages.json 所在目录）。
+        项目元数据根目录（meta.json、model.json、旧版 messages.json 所在目录）。
 
-        与 ``Project.workspace`` 可能不一致时的权威路径（例如旧数据里 workspace 误为 cwd）。
+        建模对话的权威存储在 ``Project.workspace`` 下 ``conversations/active.json``。
         """
         return self._project_dir(project_id).resolve()
     
@@ -97,11 +104,12 @@ class ProjectStore:
         else:
             user_root = user_workspace_dir(project.id)
         user_root.mkdir(parents=True, exist_ok=True)
-        for sub in ("intro", "skills", "logs", "models", "tasks", "data", "documents"):
+        for sub in ("intro", "skills", "logs", "models", "tasks", "data", "documents", "conversations"):
             (user_root / sub).mkdir(exist_ok=True)
+        (user_root / self.CONVERSATIONS_DIR / self.HISTORY_DIR).mkdir(parents=True, exist_ok=True)
         project.workspace = str(user_root)
         self._write_meta(d, project)
-        self._write_messages(d, [])
+        self._write_active_conversation_file(user_root, [])
         self._write_tasks(d, [])
         return project
     
@@ -325,31 +333,196 @@ class ProjectStore:
         except Exception:
             pass
     
-    # ============ 对话消息 ============
-    
-    def save_messages(self, project_id: str, messages: list[dict]) -> None:
-        """保存对话消息"""
-        d = self._ensure_project_dir(project_id)
-        self._write_messages(d, messages)
-    
-    def load_messages(self, project_id: str) -> list[dict]:
-        """加载对话消息"""
+    # ============ 建模对话（项目空间 conversations/）============
+
+    def modeling_workspace_root(self, project_id: str) -> Path:
+        """项目工作区根路径（meta 中的 workspace，缺省时 ~/.uap/workspace/{id}/）。"""
+        try:
+            proj = self.get_project(project_id)
+            w = (proj.workspace or "").strip()
+            if w:
+                p = Path(w).expanduser().resolve()
+                if p.is_dir():
+                    return p
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+        root = user_workspace_dir(project_id)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _conversations_root(self, project_id: str) -> Path:
+        root = self.modeling_workspace_root(project_id)
+        c = root / self.CONVERSATIONS_DIR
+        c.mkdir(parents=True, exist_ok=True)
+        (c / self.HISTORY_DIR).mkdir(parents=True, exist_ok=True)
+        return c
+
+    def _active_conversation_path(self, project_id: str) -> Path:
+        return self._conversations_root(project_id) / self.ACTIVE_CONVERSATION_FILE
+
+    def _history_dir(self, project_id: str) -> Path:
+        return self._conversations_root(project_id) / self.HISTORY_DIR
+
+    def _read_legacy_messages_file(self, project_id: str) -> list[dict]:
         d = self._project_dir(project_id)
         messages_path = d / self.MESSAGES_FILE
         if not messages_path.is_file():
             return []
         try:
             data = json.loads(messages_path.read_text(encoding="utf-8"))
-            return data.get("messages", [])
+            return list(data.get("messages", []))
         except Exception:
             return []
-    
-    def _write_messages(self, d: Path, messages: list[dict]) -> None:
-        """写入消息文件"""
+
+    def _write_legacy_messages_empty(self, project_id: str) -> None:
+        d = self._ensure_project_dir(project_id)
         (d / self.MESSAGES_FILE).write_text(
-            json.dumps({"messages": messages}, ensure_ascii=False, indent=2),
-            encoding="utf-8"
+            json.dumps({"messages": []}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
+
+    def _maybe_migrate_legacy_messages(self, project_id: str) -> None:
+        """若 workspace 尚无 active.json 且 projects_root 下旧 messages.json 有数据，则迁移。"""
+        active_path = self._active_conversation_path(project_id)
+        if active_path.is_file():
+            try:
+                cur = json.loads(active_path.read_text(encoding="utf-8"))
+                if cur.get("messages"):
+                    return
+            except Exception:
+                pass
+        legacy = self._read_legacy_messages_file(project_id)
+        if not legacy:
+            return
+        self._write_active_conversation_payload(self.modeling_workspace_root(project_id), legacy)
+        self._write_legacy_messages_empty(project_id)
+
+    @staticmethod
+    def _write_active_conversation_payload(workspace_root: Path, messages: list[dict]) -> None:
+        conv = workspace_root / ProjectStore.CONVERSATIONS_DIR
+        conv.mkdir(parents=True, exist_ok=True)
+        (conv / ProjectStore.HISTORY_DIR).mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
+        (conv / ProjectStore.ACTIVE_CONVERSATION_FILE).write_text(
+            json.dumps(
+                {"version": 1, "messages": messages, "updated_at": now},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    def _write_active_conversation_file(self, workspace_root: Path, messages: list[dict]) -> None:
+        self._write_active_conversation_payload(workspace_root, messages)
+
+    def save_messages(self, project_id: str, messages: list[dict]) -> None:
+        """保存当前建模会话消息到项目空间 ``conversations/active.json``。"""
+        self._ensure_project_dir(project_id)
+        self._maybe_migrate_legacy_messages(project_id)
+        self._write_active_conversation_payload(self.modeling_workspace_root(project_id), messages)
+
+    def load_messages(self, project_id: str) -> list[dict]:
+        """加载当前建模会话消息。"""
+        self._ensure_project_dir(project_id)
+        self._maybe_migrate_legacy_messages(project_id)
+        active_path = self._active_conversation_path(project_id)
+        if not active_path.is_file():
+            return []
+        try:
+            data = json.loads(active_path.read_text(encoding="utf-8"))
+            return list(data.get("messages", []))
+        except Exception:
+            return []
+
+    @staticmethod
+    def _session_preview_and_times(messages: list[dict]) -> tuple[str, str, str]:
+        preview = ""
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            if (m.get("role") or "").strip().lower() == "user":
+                t = (m.get("content") or "").strip().replace("\n", " ")
+                preview = (t[:15] + ("…" if len(t) > 15 else "")) if t else ""
+                break
+        times: list[str] = []
+        for m in messages:
+            if isinstance(m, dict) and m.get("created_at"):
+                times.append(str(m["created_at"]))
+        if not times:
+            now = datetime.now(timezone.utc).isoformat()
+            return preview or "（空）", now, now
+        return preview or "（空）", min(times), max(times)
+
+    def archive_active_conversation_and_clear(self, project_id: str) -> Optional[str]:
+        """
+        将非空当前会话写入 history/{uuid}.json 并清空 active。
+        返回归档 session_id；无需归档时返回 None。
+        """
+        self._ensure_project_dir(project_id)
+        self._maybe_migrate_legacy_messages(project_id)
+        messages = self.load_messages(project_id)
+        if not messages:
+            self.save_messages(project_id, [])
+            return None
+        sid = str(uuid.uuid4())
+        preview, first_at, last_at = self._session_preview_and_times(messages)
+        now = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "id": sid,
+            "preview": preview,
+            "created_at": first_at,
+            "updated_at": last_at,
+            "archived_at": now,
+            "messages": messages,
+        }
+        hist_path = self._history_dir(project_id) / f"{sid}.json"
+        hist_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self.save_messages(project_id, [])
+        return sid
+
+    def list_modeling_conversation_history(self, project_id: str) -> list[dict[str, Any]]:
+        """列出归档会话摘要（按最新时间倒序）。"""
+        self._ensure_project_dir(project_id)
+        self._maybe_migrate_legacy_messages(project_id)
+        hdir = self._history_dir(project_id)
+        if not hdir.is_dir():
+            return []
+        rows: list[dict[str, Any]] = []
+        for f in sorted(hdir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                mid = data.get("id") or f.stem
+                msgs = data.get("messages") or []
+                preview, first_at, last_at = self._session_preview_and_times(
+                    msgs if isinstance(msgs, list) else []
+                )
+                rows.append(
+                    {
+                        "id": mid,
+                        "preview": data.get("preview") or preview,
+                        "first_at": data.get("created_at") or first_at,
+                        "last_at": data.get("updated_at") or last_at,
+                    }
+                )
+            except Exception:
+                continue
+        rows.sort(key=lambda r: str(r.get("last_at") or ""), reverse=True)
+        return rows
+
+    def restore_modeling_conversation(self, project_id: str, session_id: str) -> list[dict]:
+        """从历史文件恢复为当前 active，返回消息列表。"""
+        self._ensure_project_dir(project_id)
+        self._maybe_migrate_legacy_messages(project_id)
+        hist_path = self._history_dir(project_id) / f"{session_id}.json"
+        if not hist_path.is_file():
+            raise FileNotFoundError(f"历史会话不存在: {session_id}")
+        data = json.loads(hist_path.read_text(encoding="utf-8"))
+        messages = list(data.get("messages", []))
+        self.save_messages(project_id, messages)
+        return messages
     
     # ============ 项目元数据 ============
     

@@ -57,7 +57,7 @@
             <!-- 系统建模视图 -->
             <section id="modelingView" class="view">
                 <div class="view-header">
-                    <h2>智能对话模式 <span class="mode-badge radh"><span class="badge-dot"></span>RADH</span></h2>
+                    <h2>智能对话模式 <span class="mode-badge radh"><span class="badge-dot"></span></span></h2>
                     <div class="project-selector">
                         <select id="modelingProjectSelect"><option value="">选择项目...</option></select>
                     </div>
@@ -66,7 +66,7 @@
                     <div class="modeling-chat">
                         <div class="chat-messages" id="chatMessages">
                             <div class="message system">
-                                <div class="message-content">欢迎使用智能对话模式（RADH）。<br>• R (ReAct): 智能思考与工具调用<br>• D (DST): 对话状态追踪<br>• H (HITL): 人在环确认<br><br>用<strong>一句话</strong>说出想预测什么即可（天气、营收、股价等）；我会主动追问细节并协助建模。建模完成并配置数据后，可使用定时预测。如需帮助，随时问我。</div>
+                                <div class="message-content">欢迎使用智能对话模式。<br>• 智能思考与工具调用<br>• 对话状态追踪<br>• 人在环确认<br><br>用<strong>一句话</strong>说出想预测什么即可（天气、营收、股价等）；我会主动追问细节并协助建模。建模完成并配置数据后，可使用定时预测。如需帮助，随时问我。</div>
                             </div>
                         </div>
                         <div class="chat-input">
@@ -77,6 +77,7 @@
                                     <option value="react">ReAct</option>
                                     <option value="plan">Plan</option>
                                 </select>
+                                <button type="button" class="btn btn-secondary modeling-new-chat-btn" id="newModelingChatBtn" title="归档当前会话并清空">新对话</button>
                             </div>
                             <div class="chat-input-main">
                                 <textarea id="chatInput" placeholder="例如：想预测本市下周气温走势…" rows="3"></textarea>
@@ -97,6 +98,10 @@
                             <button class="tab-btn" data-tab="dst">
                                 <span class="tab-icon">📊</span>
                                 <span>DST</span>
+                            </button>
+                            <button class="tab-btn" data-tab="history">
+                                <span class="tab-icon">💬</span>
+                                <span>历史</span>
                             </button>
                             <button class="tab-btn" data-tab="files">
                                 <span class="tab-icon">📁</span>
@@ -166,6 +171,16 @@
                                 </div>
                                 <div class="dst-details" id="dstDetails">
                                     <p class="placeholder">DST详情将在这里显示</p>
+                                </div>
+                            </div>
+                            <!-- 建模历史会话 -->
+                            <div class="tab-panel" id="historyPanel">
+                                <div class="panel-header">
+                                    <h4>历史对话</h4>
+                                    <button type="button" class="btn-icon refresh-btn" onclick="loadModelingConversationHistory()" title="刷新">⟳</button>
+                                </div>
+                                <div class="modeling-history-list" id="modelingHistoryList">
+                                    <div class="empty-state">请先选择项目</div>
                                 </div>
                             </div>
                             <!-- 项目文件夹 -->

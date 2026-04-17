@@ -359,8 +359,9 @@ async function openProject(projectId) {
             const project = await window.pywebview.api.get_project(projectId);
             if (project) {
                 state.currentProject = project;
-                window.uapAPI.onProjectLoaded(project);
                 switchView('modeling');
+                window.uapAPI.onProjectLoaded(project);
+                await loadModelingChatForCurrentProject();
             } else {
                 showToast('项目不存在', 'error');
             }
@@ -475,6 +476,179 @@ async function createProject() {
 
 // ==================== 建模功能 ====================
 
+const UAP_MODELING_WELCOME_INNER_HTML =
+    '欢迎使用智能对话模式。<br>• 智能思考与工具调用<br>• 对话状态追踪<br>• 人在环确认<br><br>用<strong>一句话</strong>说出想预测什么即可（天气、营收、股价等）；我会主动追问细节并协助建模。建模完成并配置数据后，可使用定时预测。如需帮助，随时问我。';
+
+function resetModelingChatToWelcome() {
+    const c = document.getElementById('chatMessages');
+    if (!c) return;
+    c.innerHTML = `<div class="message system"><div class="message-content">${UAP_MODELING_WELCOME_INNER_HTML}</div></div>`;
+    c.scrollTop = c.scrollHeight;
+}
+
+function resetModelingSessionSidebars() {
+    const badge = document.getElementById('processStatus');
+    const box = document.getElementById('processSteps');
+    if (badge) {
+        badge.className = 'status-badge idle';
+        badge.textContent = '空闲';
+    }
+    if (box) {
+        box.innerHTML = '<div class="empty-state">暂无运行中的任务</div>';
+    }
+    updateDSTStatus('INITIAL', 0, {});
+    const dstDetails = document.getElementById('dstDetails');
+    if (dstDetails) {
+        dstDetails.innerHTML = '<p class="placeholder">DST详情将在这里显示</p>';
+    }
+}
+
+function renderModelingChatFromApiMessages(messages) {
+    resetModelingChatToWelcome();
+    const arr = Array.isArray(messages) ? messages : [];
+    arr.forEach((m) => {
+        const role = (m.role || '').toLowerCase();
+        if (role !== 'user' && role !== 'assistant') return;
+        appendChatMessage({
+            type: role,
+            content: String(m.content != null ? m.content : ''),
+            timestamp: m.created_at || new Date().toISOString(),
+        });
+    });
+}
+
+async function loadModelingChatForCurrentProject() {
+    if (!state.currentProject || !isPywebviewApiCallable()) return;
+    try {
+        const res = await window.pywebview.api.get_modeling_messages(state.currentProject.id);
+        if (res && res.ok) {
+            renderModelingChatFromApiMessages(res.messages);
+        }
+    } catch (e) {
+        console.error('加载建模会话失败:', e);
+    }
+}
+
+function formatHistorySessionTime(iso) {
+    if (!iso) return '—';
+    try {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return String(iso).slice(0, 19);
+        return d.toLocaleString('zh-CN');
+    } catch (_) {
+        return String(iso);
+    }
+}
+
+async function loadModelingConversationHistory() {
+    const list = document.getElementById('modelingHistoryList');
+    if (!list) return;
+    if (!state.currentProject) {
+        list.innerHTML = '<div class="empty-state">请先选择项目</div>';
+        return;
+    }
+    if (!isPywebviewApiCallable()) {
+        list.innerHTML = '<div class="empty-state">演示模式无历史</div>';
+        return;
+    }
+    list.innerHTML = '<div class="empty-state">加载中…</div>';
+    try {
+        const res = await window.pywebview.api.list_modeling_conversation_history(
+            state.currentProject.id
+        );
+        if (!res || !res.ok) {
+            list.innerHTML = `<div class="empty-state">${escapeHtml(res?.error || '加载失败')}</div>`;
+            return;
+        }
+        const items = res.items || [];
+        if (!items.length) {
+            list.innerHTML = '<div class="empty-state">暂无归档会话</div>';
+            return;
+        }
+        list.innerHTML = items
+            .map((it) => {
+                const id = escapeHtml(String(it.id || ''));
+                const pv = escapeHtml(String(it.preview || ''));
+                const fa = escapeHtml(formatHistorySessionTime(it.first_at));
+                const la = escapeHtml(formatHistorySessionTime(it.last_at));
+                return `<div class="modeling-history-row">
+        <div class="modeling-history-row-meta">
+          <div class="modeling-history-preview">${pv}</div>
+          <div class="modeling-history-times">最早：${fa}<br>最新：${la}</div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm modeling-restore-btn" data-session-id="${id}">恢复</button>
+      </div>`;
+            })
+            .join('');
+        list.querySelectorAll('.modeling-restore-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const sid = btn.getAttribute('data-session-id');
+                if (sid) restoreModelingConversationSession(sid);
+            });
+        });
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+}
+
+async function restoreModelingConversationSession(sessionId) {
+    if (!state.currentProject || !sessionId) return;
+    if (!isPywebviewApiCallable()) return;
+    try {
+        const res = await window.pywebview.api.restore_modeling_conversation(
+            state.currentProject.id,
+            sessionId
+        );
+        if (!res || !res.ok) {
+            showToast(res?.error || '恢复失败', 'error');
+            return;
+        }
+        renderModelingChatFromApiMessages(res.messages);
+        resetModelingSessionSidebars();
+        showToast('已恢复该会话到当前建模', 'success');
+    } catch (e) {
+        showToast('恢复失败: ' + (e.message || e), 'error');
+    }
+}
+
+async function onNewModelingConversationClick() {
+    if (!state.currentProject) {
+        showToast('请先选择一个项目', 'warning');
+        return;
+    }
+    if (!isPywebviewApiCallable()) {
+        resetModelingChatToWelcome();
+        resetModelingSessionSidebars();
+        showToast('演示模式：已清空本地显示', 'info');
+        return;
+    }
+    if (!confirm('确定开始新对话？当前会话将归档到「历史」，聊天与后端上下文将清空。')) {
+        return;
+    }
+    try {
+        const res = await window.pywebview.api.start_new_modeling_conversation(
+            state.currentProject.id
+        );
+        if (!res || !res.ok) {
+            showToast(res?.error || '操作失败', 'error');
+            return;
+        }
+        resetModelingChatToWelcome();
+        resetModelingSessionSidebars();
+        if (res.archived_session_id) {
+            showToast('已归档并开始新对话', 'success');
+        } else {
+            showToast('已开始新对话', 'success');
+        }
+        await loadModelingConversationHistory();
+    } catch (e) {
+        showToast('新对话失败: ' + (e.message || e), 'error');
+    }
+}
+
+window.loadModelingConversationHistory = loadModelingConversationHistory;
+
 function bindModelingEvents() {
     const sendBtn = document.getElementById('sendMessageBtn');
     if (sendBtn) {
@@ -499,6 +673,10 @@ function bindModelingEvents() {
             }
         });
     }
+
+    document
+        .getElementById('newModelingChatBtn')
+        ?.addEventListener('click', () => onNewModelingConversationClick());
     
     // 智能体侧边栏标签切换
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -526,6 +704,9 @@ function switchAgentTab(tabName) {
     switch (tabName) {
         case 'skills':
             loadSkillsList();
+            break;
+        case 'history':
+            loadModelingConversationHistory();
             break;
         case 'files':
             loadProjectFiles();

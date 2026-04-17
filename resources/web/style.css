@@ -581,6 +581,45 @@ select {
     background: var(--card-bg, #fff);
 }
 
+.modeling-new-chat-btn {
+    margin-left: auto;
+    white-space: nowrap;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.modeling-history-list {
+    padding: 4px 0;
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+}
+
+.modeling-history-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    font-size: 13px;
+}
+
+.modeling-history-row-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.modeling-history-preview {
+    font-weight: 600;
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+
+.modeling-history-times {
+    color: var(--text-muted, #6b7280);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
 .chat-input-main {
     display: flex;
     gap: 12px;
