@@ -21,7 +21,9 @@ llm:
   api_mode: "native"  # native | openai
   trust_env: null
 
-# 嵌入模型配置
+# 嵌入模型配置（RAG/向量检索等；通常由本地 Ollama 等提供，与下方 llm.provider 独立）
+# 说明：若 llm.provider 为远程 OpenAI 兼容且代码路径调用 OpenAICompatibleChatClient.create_embedding，
+# 当前实现未对接 /v1/embeddings，会返回空向量并打日志；嵌入请优先使用本节的 embedding 服务。
 embedding:
   model: "qwen3-embedding:8b"
   base_url: ""  # 空则使用 llm.base_url
@@ -92,7 +94,7 @@ memory:
   vector_enabled: true
   # 事件存储
   event_index_enabled: true
-  # 关系图谱
+  # 关系图谱（图记忆管线扩展预留；桌面默认建模路径未依赖此项）
   graph_enabled: true
 
 # 智能体配置
@@ -117,6 +119,8 @@ agent:
   #   base_url: ""
   # 建模时注册 win11_read_file / write / delete / modify / move（项目工作区内）
   modeling_win11_fs_skills_enabled: true
+  # 为 true 且本轮 business_success 时，将 DST 轨迹经 SkillGenerator 落盘为项目技能（额外 LLM）
+  modeling_skill_solidification_enabled: false
   # 内置定时任务（默认开启，用于自动预测）
   builtin_scheduler_enabled: true
 

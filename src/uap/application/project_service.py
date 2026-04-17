@@ -546,7 +546,7 @@ class ProjectService:
         existing = (
             project.system_model.model_dump() if project.system_model else None
         )
-        return {
+        out: dict[str, object] = {
             "project_id": project_id,
             "project_name": project.name,
             "existing_model": existing,
@@ -554,6 +554,25 @@ class ProjectService:
             if project.system_model
             else "",
         }
+        try:
+            agg = self._store.load_dst_aggregate(project_id)
+        except OSError:
+            agg = None
+        if isinstance(agg, dict):
+            vars_ = agg.get("variables") or []
+            rels = agg.get("relations") or []
+            if vars_ or rels:
+                vpart = ",".join(str(x) for x in vars_[:20])
+                if len(vars_) > 20:
+                    vpart += "…"
+                rpart = ",".join(str(x) for x in rels[:12])
+                if len(rels) > 12:
+                    rpart += "…"
+                out["project_dst_aggregate_hint"] = (
+                    f"（跨会话 DST 摘要：阶段={agg.get('current_stage')}，"
+                    f"变量键={vpart}，关系键={rpart}）"
+                )
+        return out
 
     def _decide_mode_by_task(self, task: str, context: dict, chat_model) -> str:
         """返回 ``react`` 或 ``plan``（Auto 模式用）。"""
@@ -716,7 +735,7 @@ class ProjectService:
             self._store.save_model(project_id, model)
 
         substantive = self._modeling_snapshot_substantive(model)
-        return {
+        out = {
             "ok": True,
             "message": self._generate_response_message(result, model),
             "model": model.model_dump() if model else None,
@@ -727,9 +746,21 @@ class ProjectService:
             "pending_ask_user_card": pending_ask_user_card,
             "success": result.success,
             "modeling_substantive": substantive,
+            "business_success": self._business_modeling_success(result.success, substantive),
             "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
         }
+        self._persist_dst_project_aggregate(project_id, dst_manager)
+        sol = self._maybe_persist_generated_skill_from_modeling(
+            project_id,
+            project.name,
+            dst_manager,
+            result.session_id,
+            out["business_success"],
+        )
+        if sol:
+            out["solidified_skill"] = sol
+        return out
 
     def _run_plan_modeling(
         self,
@@ -815,7 +846,7 @@ class ProjectService:
             and str(getattr(st.status, "value", st.status)) == "completed"
         )
         substantive = self._modeling_snapshot_substantive(model)
-        return {
+        out = {
             "ok": True,
             "message": self._generate_response_message(result, model),
             "model": model.model_dump() if model else None,
@@ -826,9 +857,21 @@ class ProjectService:
             "pending_card": pending_card,
             "success": result.success,
             "modeling_substantive": substantive,
+            "business_success": self._business_modeling_success(result.success, substantive),
             "tool_calls": tool_calls,
             "replan_count": result.replan_count,
         }
+        self._persist_dst_project_aggregate(project_id, dst_manager)
+        sol = self._maybe_persist_generated_skill_from_modeling(
+            project_id,
+            project.name,
+            dst_manager,
+            result.session_id,
+            out["business_success"],
+        )
+        if sol:
+            out["solidified_skill"] = sol
+        return out
 
     def react_modeling(
         self,
@@ -1120,6 +1163,55 @@ class ProjectService:
                 parts.append(f"（共 {len(opts)} 个选项，您可在下一条消息中直接回复选择或补充说明。）")
             break
 
+    def _persist_dst_project_aggregate(self, project_id: str, dst_manager: Any) -> None:
+        if not (project_id or "").strip():
+            return
+        snap = dst_manager.export_project_aggregate_dict(project_id)
+        if not snap:
+            return
+        try:
+            self._store.save_dst_aggregate(project_id, snap)
+        except OSError as e:
+            _LOG.warning("[Modeling] save_dst_aggregate failed: %s", e)
+
+    def _maybe_persist_generated_skill_from_modeling(
+        self,
+        project_id: str,
+        project_name: str,
+        dst_manager: Any,
+        session_id: str,
+        business_success: bool,
+    ) -> dict[str, str] | None:
+        if not getattr(self._cfg.agent, "modeling_skill_solidification_enabled", False):
+            return None
+        if not business_success or not (project_id or "").strip():
+            return None
+        session = dst_manager.get_session(session_id)
+        if not session or not getattr(session, "project_id", ""):
+            return None
+        if session.project_id.strip() != project_id.strip():
+            _LOG.warning("[Modeling] session project_id mismatch, skip skill solidification")
+            return None
+        if not session.actions:
+            return None
+        try:
+            from uap.infrastructure.llm.factory import create_llm_chat_client
+            from uap.skill.generator import SkillGenerator
+            from uap.skill.skill_store import SkillStore
+
+            llm = create_llm_chat_client(self._cfg.llm)
+            gen = SkillGenerator(llm)
+            project_info = {"project_id": project_id, "id": project_id, "name": project_name}
+            skill = gen.generate(session, project_info)
+            if not skill:
+                return None
+            store = SkillStore(str(self._store.root))
+            path = store.save_skill(skill)
+            return {"skill_id": skill.skill_id, "path": path}
+        except Exception as e:
+            _LOG.warning("[Modeling] skill solidification failed: %s", e)
+            return None
+
     @staticmethod
     def _modeling_snapshot_substantive(model: Optional[SystemModel]) -> bool:
         """是否已有可展示/可保存的结构化建模快照（变量、关系或约束）。"""
@@ -1131,6 +1223,11 @@ class ProjectService:
             return len(model.relations) > 0
         cons = getattr(model, "constraints", None) or []
         return len(cons) > 0
+
+    @staticmethod
+    def _business_modeling_success(protocol_success: bool, substantive: bool) -> bool:
+        """业务上可视为「本轮建模有实质进展」：协议正常结束且已有结构化快照。"""
+        return bool(protocol_success) and bool(substantive)
 
     def _append_plan_failure_excerpt(self, result: Any, parts: list[str]) -> None:
         plan = getattr(result, "plan", None) or []

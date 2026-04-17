@@ -257,7 +257,7 @@ class ProjectSkill(BaseModel):
     steps: list[SkillStep] = Field(default_factory=list, description="执行步骤")
     parameters: list[SkillParameter] = Field(default_factory=list, description="参数定义")
     
-    # 前置条件
+    # 前置条件（执行前校验；支持 ``ctx:a.b`` / ``context:a`` 或纯 ``a.b`` 路径，见 ``SkillManager._check_preconditions``）
     preconditions: list[str] = Field(default_factory=list, description="前置条件")
     postconditions: list[str] = Field(default_factory=list, description="后置条件")
     

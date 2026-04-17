@@ -155,8 +155,10 @@ class ProjectsApiMixin:
         成功（``ok: true``）时返回字段与流式结束时的 ``result`` 一致，主要包括：
         ``message``, ``model``, ``session_id``, ``steps``, ``dst_state``,
         ``success``（协议是否正常结束）, ``modeling_substantive``（是否有变量/关系/约束快照）,
+        ``business_success``（协议成功且本轮有实质快照，见交付计划第五节）,
         ``pending_user_input``, ``pending_ask_user_card``, ``tool_calls``,
-        ``mode_used``, ``mode_requested``, ``plan``, ``replan_count``。
+        ``mode_used``, ``mode_requested``, ``plan``, ``replan_count``；
+        技能固化成功时另有 ``solidified_skill``（见交付计划第五节）。
         字段语义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
 
         失败时 ``ok: false``，仅保证 ``message`` 等错误信息可读。
@@ -260,7 +262,7 @@ class ProjectsApiMixin:
                 ],
             )
 
-            return {
+            body: dict = {
                 "ok": True,
                 "message": full_message,
                 "model": result.get("model"),
@@ -271,6 +273,7 @@ class ProjectsApiMixin:
                 "pending_ask_user_card": result.get("pending_ask_user_card"),
                 "success": result.get("success", False),
                 "modeling_substantive": bool(result.get("modeling_substantive", False)),
+                "business_success": bool(result.get("business_success", False)),
                 "pending_user_input": result.get("pending_user_input", False),
                 "tool_calls": result.get("tool_calls", 0),
                 "mode_used": result.get("mode_used"),
@@ -278,6 +281,9 @@ class ProjectsApiMixin:
                 "plan": result.get("plan"),
                 "replan_count": result.get("replan_count", 0),
             }
+            if result.get("solidified_skill"):
+                body["solidified_skill"] = result["solidified_skill"]
+            return body
         error_msg = result.get("error", "建模失败")
         _LOG.warning("[API] modeling_chat failed: %s", error_msg)
         return {"ok": False, "message": error_msg}
@@ -287,10 +293,10 @@ class ProjectsApiMixin:
         建模对话（同步一次返回）。
 
         成功时返回字段含 ``message``、``steps``、``dst_state``、``success``、
-        ``modeling_substantive``、``pending_user_input``（本轮 ReAct 图已结束；若末步为
+        ``modeling_substantive``、``business_success``、``pending_user_input``（本轮 ReAct 图已结束；若末步为
         ``ask_user`` 则等待用户下一条消息再开新轮，并非在同一次 ``invoke`` 内挂起）、
         ``pending_ask_user_card``（可选，追问 IM 卡片数据）、``mode_used`` 等。
-        ``success`` 与 ``modeling_substantive`` 含义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
+        ``success``、``modeling_substantive`` 与 ``business_success`` 含义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
         渐进式输出请用 ``start_modeling_chat_stream`` /
         ``poll_modeling_chat_stream``。
         ``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。
@@ -376,7 +382,7 @@ class ProjectsApiMixin:
         拉取自上次 poll 以来累积的 token；若 ``done``，同时返回 ``result`` 或 ``error``。
 
         ``done`` 为真且 ``ok`` 为真时，``result`` 与同步 ``modeling_chat`` 成功返回结构一致
-        （含 ``success``、``modeling_substantive``、``pending_ask_user_card`` 等），
+        （含 ``success``、``modeling_substantive``、``business_success``、``pending_ask_user_card`` 等），
         见 ``_modeling_chat_core_body``。
         """
         if not stream_id or not str(stream_id).strip():

@@ -86,6 +86,10 @@ class OpenAICompatibleChatClient:
         raise NotImplementedError("请使用 chat(messages)")
 
     def create_embedding(self, text: str, model: Optional[str] = None) -> list[float]:
+        """OpenAI 兼容聊天客户端当前仅实现 ``chat``；嵌入请走独立 ``embedding`` 配置（如 Ollama）。
+
+        若 RAG/预测链路强依赖本类的远程嵌入，需在此补全对 ``/v1/embeddings`` 的调用；在此之前保持空向量并打日志。
+        """
         _LOG.warning("[OpenAICompat] create_embedding 未实现，返回空向量")
         return []
 

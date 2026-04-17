@@ -1479,7 +1479,7 @@ function syncModelingDstPanel(dst) {
 /**
  * 建模进程侧栏徽章（与 API 字段对齐，勿与「HTTP 成功」混用）：
  * - pending_user_input → 「待您回复」/ running
- * - ok && success && modeling_substantive（或从 model 推断有变量/关系/约束）→ 「已完成」/ completed
+ * - ok && business_success（或兼容：success && modeling_substantive / 从 model 推断）→ 「已完成」/ completed
  * - ok && success 且无实质 → 「已结束」/ partial（协议结束但未沉淀结构化快照）
  * - ok && !success → 「已结束」/ partial
  * - !ok → 「错误」/ error
@@ -1502,6 +1502,10 @@ function renderModelingProcessPanel(response) {
             (Array.isArray(m.constraints) && m.constraints.length > 0));
     const substantive =
         !!(response && response.modeling_substantive) || substantiveFromModel;
+    const businessSuccess =
+        response && response.business_success != null
+            ? !!response.business_success
+            : success && substantive;
 
     let st = 'idle';
     let badgeText = '空闲';
@@ -1511,7 +1515,7 @@ function renderModelingProcessPanel(response) {
     } else if (pendingIn) {
         st = 'running';
         badgeText = '待您回复';
-    } else if (success && substantive) {
+    } else if (businessSuccess) {
         st = 'completed';
         badgeText = '已完成';
     } else if (success) {

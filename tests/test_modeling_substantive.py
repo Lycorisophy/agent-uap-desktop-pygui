@@ -19,6 +19,12 @@ def test_modeling_snapshot_substantive_with_variable() -> None:
     assert ProjectService._modeling_snapshot_substantive(m) is True
 
 
+def test_business_modeling_success_formula() -> None:
+    assert ProjectService._business_modeling_success(True, True) is True
+    assert ProjectService._business_modeling_success(True, False) is False
+    assert ProjectService._business_modeling_success(False, True) is False
+
+
 def test_generate_response_success_without_substance() -> None:
     ps = ProjectService.__new__(ProjectService)  # 仅测文案，不初始化 store
     result = SimpleNamespace(

@@ -64,5 +64,15 @@
 ## 自动化回归（与阶段 0.2 一致）
 
 ```bash
-pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py -q
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py -q
 ```
+
+---
+
+## 核对记录（可填写）
+
+| 类型 | 日期 | 结果 | 说明 |
+|------|------|------|------|
+| **自动化回归** | 2026-04-17 | 21 passed | 上列 pytest；不含桌面 UI。 |
+| **第一节人工** | | 未填 | 发版前在应用中按第一节逐步勾选。 |
+| **第二节人工** | | 未填 | 发版前在应用中按第二节逐步勾选。 |

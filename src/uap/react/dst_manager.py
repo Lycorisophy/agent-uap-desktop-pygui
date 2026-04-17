@@ -20,6 +20,7 @@ DST 与「八大行动模式」的关系：
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -276,6 +277,39 @@ class DstManager:
             })
 
         state.updated_at = datetime.now()
+        self._merge_dst_into_project_aggregate(state)
+
+    def _merge_dst_into_project_aggregate(self, delta: DstState) -> None:
+        """将本会话 DST 槽位合并进 ``project_id`` 级聚合（多会话累积，供提示词与落盘）。"""
+        pid = (delta.project_id or "").strip()
+        if not pid:
+            return
+        base = self._project_states.get(pid)
+        if base is None:
+            base = DstState(
+                session_id="_project_aggregate_",
+                project_id=pid,
+                current_stage=delta.current_stage,
+            )
+            self._project_states[pid] = base
+        base.variables.update(delta.variables)
+        base.relations.update(delta.relations)
+        existing_sigs = {
+            json.dumps(c, sort_keys=True, ensure_ascii=False) for c in base.constraints
+        }
+        for c in delta.constraints:
+            sig = json.dumps(c, sort_keys=True, ensure_ascii=False)
+            if sig not in existing_sigs:
+                base.constraints.append(c)
+                existing_sigs.add(sig)
+        cur_b = _coerce_modeling_stage(base.current_stage)
+        cur_d = _coerce_modeling_stage(delta.current_stage)
+        if _modeling_stage_rank(cur_d) >= _modeling_stage_rank(cur_b):
+            base.current_stage = delta.current_stage
+        base.variable_confidence = max(base.variable_confidence, delta.variable_confidence)
+        base.relation_confidence = max(base.relation_confidence, delta.relation_confidence)
+        base.overall_confidence = max(base.overall_confidence, delta.overall_confidence)
+        base.updated_at = datetime.now()
 
     def _update_stage(self, state: DstState, tool_name: str, metadata: dict) -> None:
         """根据工具执行情况更新建模阶段"""
@@ -358,10 +392,30 @@ class DstManager:
         dst_state = self._dst_states.get(session_id)
         if dst_state:
             dst_state.current_stage = ModelingStage.COMPLETED
-            self._project_states[dst_state.project_id] = dst_state
+            dst_state.updated_at = datetime.now()
+            self._merge_dst_into_project_aggregate(dst_state)
 
         _LOG.info("[DstManager] Session %s completed, final_stage=%s",
                   session_id, dst_state.current_stage if dst_state else "unknown")
+
+    def export_project_aggregate_dict(self, project_id: str) -> dict[str, Any]:
+        """导出 ``project_id`` 下跨会话合并后的 DST 摘要（可 JSON 落盘）。"""
+        pid = (project_id or "").strip()
+        if not pid:
+            return {}
+        st = self._project_states.get(pid)
+        if not st:
+            return {}
+        return {
+            "project_id": pid,
+            "current_stage": _coerce_modeling_stage(st.current_stage).value,
+            "variables": list(st.variables.keys()),
+            "relations": list(st.relations.keys()),
+            "constraints_count": len(st.constraints),
+            "progress": self._calculate_progress(st),
+            "confidence": st.overall_confidence,
+            "updated_at": st.updated_at.isoformat() if st.updated_at else None,
+        }
 
     def get_session_state(self, session_id: str) -> dict:
         """

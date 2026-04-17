@@ -20,7 +20,7 @@
 **推荐回归命令（CI / 本地）：**
 
 ```bash
-pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py -q
+pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_modeling_substantive.py tests/test_plan_agent.py tests/test_ask_user_card.py tests/test_skill_preconditions.py -q
 ```
 
 ---
@@ -57,18 +57,18 @@ pytest tests/test_react_langgraph.py tests/test_dst_manager_stage.py tests/test_
 
 | 顺序 | 事项 | 说明 |
 |------|------|------|
-| **A.1** | 业务成功与协议成功再拆一层 | 若产品需要：例如增加 `business_success` 或「必须 `extract_model` 成功」才展示某类完成态。 |
-| **A.2** | 领域数据模板 | 天气/销量等：文档化推荐目录结构、示例 CSV、与 `data_load_csv` 的衔接；可选小向导文案。 |
-| **A.3** | OpenAI 兼容 `embedding` | 当 RAG/预测链路真依赖 `OpenAICompatibleChatClient.create_embedding` 时再实现；否则在配置中标注「未实现」。 |
+| **A.1** | 业务成功与协议成功再拆一层 | **已实现**：响应字段 `business_success` = `success` ∧ `modeling_substantive`；见第五节。 |
+| **A.2** | 领域数据模板 | **已实现**：见 [MODELING_DOMAIN_DATA.md](MODELING_DOMAIN_DATA.md)（目录建议、示例 CSV、`data_load_csv`）。 |
+| **A.3** | OpenAI 兼容 `embedding` | **已标注**：`OpenAICompatibleChatClient.create_embedding` 仍返回空向量；`config/uap.example.yaml` 的 `embedding` 节说明与独立嵌入服务的关系。 |
 
 ### 优先级 B（架构扩展）
 
 | 顺序 | 事项 | 说明 |
 |------|------|------|
-| **B.1** | 会话轨迹 → 技能固化 | 打通 `SkillGenerator` / `SkillManager` 与建模会话的入口与权限模型。 |
-| **B.2** | DST 跨会话按 `project_id` 聚合 | 对应 `DstManager` 中预留的 `_project_states`。 |
-| **B.3** | `graph_enabled` 实体关系图存储 | 与配置说明一致后再做。 |
-| **B.4** | 技能复杂前置条件 | `skill/manager.py` 中 TODO 的前置条件检查。 |
+| **B.1** | 会话轨迹 → 技能固化 | **已实现（可选）**：`agent.modeling_skill_solidification_enabled` 为 true 且 `business_success` 时，`SkillGenerator`→`SkillStore`；会话 `project_id` 必须与当前项目一致。 |
+| **B.2** | DST 跨会话按 `project_id` 聚合 | **已实现**：`DstManager._merge_dst_into_project_aggregate`；`ProjectStore.dst_aggregate.json`；`_modeling_context_dict` 注入 `project_dst_aggregate_hint`。 |
+| **B.3** | `graph_enabled` 实体关系图存储 | **仍为预留**：`memory.graph_enabled` 与 `uap.example.yaml` 已注明非桌面默认路径。 |
+| **B.4** | 技能复杂前置条件 | **已实现**：`SkillManager._check_preconditions` 支持 `ctx:` / `context:` / 点路径；保留含「需要」的兼容分支。 |
 
 ---
 
@@ -125,6 +125,8 @@ render(
 | `message` | string | 面向用户的完整助手文本（含可选的步骤摘要、DST 行）；流式结束后与同步一致。 |
 | `success` | bool | **协议成功**：ReAct/Plan 本轮是否以约定正常结束（如末步 `FINAL_ANSWER`）。**不表示**「业务上模型已完备」。 |
 | `modeling_substantive` | bool | **是否有结构化快照**：本轮 `SystemModel` 是否含非空变量、关系或约束之一；前端进程徽章「已完成」依赖此字段（及从 `model` 推断的兜底）。 |
+| `business_success` | bool | **业务上「协议成功且本轮有实质快照」**：等价于 `success && modeling_substantive`；集成方可单字段判断「本轮既有正常结束又有变量/关系/约束沉淀」。 |
+| `solidified_skill` | object? | 仅当配置开启技能固化且生成成功时存在：`{ skill_id, path }`。 |
 | `pending_user_input` | bool | **是否等待用户下一条消息**（例如末步 `ask_user`）；此时 `success` 多为 `false`。 |
 | `pending_ask_user_card` | object? | 追问 IM 卡片载荷；无追问时为缺省/空。 |
 | `steps` | array | ReAct 步或 Plan 映射步；供进程时间线展示。 |
@@ -141,6 +143,7 @@ render(
 |------|------|
 | [MODELING_SMOKE_CHECKLIST.md](MODELING_SMOKE_CHECKLIST.md) | ReAct / Plan 人工冒烟与自动化命令 |
 | [MODELING_SECURITY_NOTES.md](MODELING_SECURITY_NOTES.md) | 流式、卡片、日志、工作区自检项 |
+| [MODELING_DOMAIN_DATA.md](MODELING_DOMAIN_DATA.md) | 领域数据目录与 CSV 示例（与 `data_load_csv` 衔接） |
 
 ---
 

@@ -56,6 +56,7 @@ class ProjectStore:
     CONVERSATIONS_DIR = "conversations"
     ACTIVE_CONVERSATION_FILE = "active.json"
     HISTORY_DIR = "history"
+    DST_AGGREGATE_FILE = "dst_aggregate.json"
     
     def __init__(self, root: Path | str, uap_cfg: Optional["UapConfig"] = None) -> None:
         self._root = Path(root) if isinstance(root, str) else root
@@ -191,7 +192,25 @@ class ProjectStore:
         if not model_path.is_file():
             return None
         return SystemModel.model_validate_json(model_path.read_text(encoding="utf-8"))
-    
+
+    def save_dst_aggregate(self, project_id: str, payload: dict[str, Any]) -> None:
+        """持久化跨会话 DST 槽位摘要（与 ``DstManager.export_project_aggregate_dict`` 对齐）。"""
+        d = self._ensure_project_dir(project_id)
+        (d / self.DST_AGGREGATE_FILE).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_dst_aggregate(self, project_id: str) -> Optional[dict[str, Any]]:
+        """读取 ``dst_aggregate.json``；不存在或损坏时返回 ``None``。"""
+        p = self._project_dir(project_id) / self.DST_AGGREGATE_FILE
+        if not p.is_file():
+            return None
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+
     # ============ 预测配置 ============
     
     def save_prediction_config(self, project_id: str, config: PredictionConfig) -> None:

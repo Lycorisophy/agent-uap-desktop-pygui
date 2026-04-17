@@ -201,6 +201,8 @@ class AgentConfig(BaseModel):
     - ``builtin_scheduler_enabled``：定时预测与后台任务，属 **环境 Harness**，
       与对话式行动模式正交。
     - ``modeling_agent_mode``：未传每轮 ``mode`` 时的默认（``react`` / ``plan`` / ``auto``）。
+    - ``modeling_skill_solidification_enabled``：是否在 ``business_success`` 时尝试
+      ``SkillGenerator`` 落盘项目技能（额外 LLM，默认关闭）。
     """
     react_max_steps_default: int = Field(
         default=8,
@@ -250,6 +252,12 @@ class AgentConfig(BaseModel):
         description=(
             "单次 modeling_chat 内允许连续 ask_user 的次数；达到后图结束，等待用户在下一条消息中回复。"
             "默认 1 表示首轮追问后即结束本轮（HITL），避免同轮无用户输入的死循环追问。"
+        ),
+    )
+    modeling_skill_solidification_enabled: bool = Field(
+        default=False,
+        description=(
+            "为 True 且本轮 ``business_success`` 时，尝试将 DST 轨迹经 SkillGenerator 落盘为项目技能（额外 LLM 调用）"
         ),
     )
     ask_user_card_timeout_seconds: int = Field(

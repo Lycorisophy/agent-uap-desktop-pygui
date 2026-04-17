@@ -64,7 +64,11 @@ UAP 是一款**纯客户端桌面应用**，旨在帮助用户对复杂系统进
 | **`agent.plan_max_time_seconds`** | Plan 墙钟超时（秒）。 |
 | **`agent.ask_user_card_timeout_seconds`** | 建模追问卡片过期秒数。 |
 
+**MiniMax**：`llm.model` 须与控制台 **注册 model id** 完全一致（勿用带空格的展示名）；`llm.base_url` 与控制台文档一致。代码内默认示例见 [`src/uap/config.py`](src/uap/config.py) 中 `llm_provider_presets()` 的 `minimax` 项。
+
 **冒烟与回归**：见 [`docs/MODELING_SMOKE_CHECKLIST.md`](docs/MODELING_SMOKE_CHECKLIST.md) 与 [`docs/MODELING_DELIVERY_PLAN.md`](docs/MODELING_DELIVERY_PLAN.md) 文首「阶段完成情况」中的 pytest 命令。
+
+**领域数据（CSV 等）**：见 [`docs/MODELING_DOMAIN_DATA.md`](docs/MODELING_DOMAIN_DATA.md)。
 
 ---
 
