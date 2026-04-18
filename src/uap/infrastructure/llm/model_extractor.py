@@ -21,7 +21,7 @@ ModelExtractor —— **提示词工程**驱动的「结构化抽取」管线
 import json
 import re
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from dataclasses import dataclass
 
 # 配置日志
@@ -30,6 +30,62 @@ _LOG.setLevel(logging.DEBUG)
 
 from uap.project.models import SystemModel, Variable, Relation, Constraint, ModelSource
 from uap.prompts import PromptId, load_raw, render
+
+VarValueType = Literal["float", "int", "bool", "str"]
+ConstraintType = Literal["equality", "inequality", "boundary"]
+
+
+def _normalize_variable_value_type(raw: Any) -> VarValueType:
+    """
+    将提示词中的语义类型（continuous / discrete / binary / categorical）
+    与 ``Variable.value_type`` 的存储类型对齐。
+    """
+    if raw is None or raw == "":
+        return "float"
+    s = str(raw).strip().lower()
+    table: dict[str, VarValueType] = {
+        "continuous": "float",
+        "real": "float",
+        "float": "float",
+        "double": "float",
+        "discrete": "int",
+        "integer": "int",
+        "int": "int",
+        "count": "int",
+        "binary": "bool",
+        "boolean": "bool",
+        "bool": "bool",
+        "categorical": "str",
+        "category": "str",
+        "string": "str",
+        "str": "str",
+        "enum": "str",
+        "ordinal": "str",
+    }
+    out = table.get(s)
+    if out is not None:
+        return out
+    _LOG.warning("[Extractor] Unknown variable type %r, defaulting to float", raw)
+    return "float"
+
+
+def _normalize_constraint_type(raw: Any) -> ConstraintType:
+    """提示词中常见 range|invariant|boundary → ``Constraint.constraint_type`` 合法值。"""
+    if raw is None or raw == "":
+        return "boundary"
+    s = str(raw).strip().lower()
+    table: dict[str, ConstraintType] = {
+        "range": "boundary",
+        "boundary": "boundary",
+        "invariant": "equality",
+        "equality": "equality",
+        "inequality": "inequality",
+    }
+    out = table.get(s)
+    if out is not None:
+        return out
+    _LOG.warning("[Extractor] Unknown constraint type %r, defaulting to boundary", raw)
+    return "boundary"
 
 
 def get_model_extraction_system_prompt() -> str:
@@ -234,12 +290,10 @@ class ModelExtractor:
                 unit_val = v.get("unit")
                 if unit_val is None:
                     unit_val = ""
-                # 处理value_type字段映射
-                var_type = v.get("type") or v.get("value_type", "float")
-                if var_type == "continuous":
-                    var_type = "float"
-                elif var_type == "discrete":
-                    var_type = "int"
+                # 处理 value_type：契约里 type 为语义分类，须映射到 Variable 存储类型
+                var_type = _normalize_variable_value_type(
+                    v.get("type") or v.get("value_type", "float")
+                )
                 # 处理range字段映射到bounds
                 range_data = v.get("range")
                 bounds_min = bounds_max = None
@@ -271,7 +325,9 @@ class ModelExtractor:
             
             constraints = []
             for c in data.get("constraints", []):
-                constraint_type = c.get("type") or c.get("constraint_type", "boundary")
+                constraint_type = _normalize_constraint_type(
+                    c.get("type") or c.get("constraint_type", "boundary")
+                )
                 constraints.append(Constraint(
                     name=c.get("name", f"constraint_{len(constraints)}"),
                     description=c.get("description", ""),

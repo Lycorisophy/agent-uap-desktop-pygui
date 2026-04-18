@@ -43,6 +43,34 @@ def test_model_extractor_parse_minimal_json() -> None:
     assert result.model.variables[0].name == "x"
 
 
+def test_model_extractor_maps_semantic_variable_types() -> None:
+    """提示词契约中的 categorical / binary 等须落到 Variable.value_type。"""
+    ext = ModelExtractor(client=MagicMock())
+    payload = (
+        '{"variables":['
+        '{"name":"w","type":"categorical","description":"","unit":""},'
+        '{"name":"b","type":"binary","description":"","unit":""}'
+        '],"relations":[],"constraints":[],"confidence":0.5,"reasoning":""}'
+    )
+    result = ext._parse_response(payload)
+    assert result.success and result.model is not None
+    assert result.model.variables[0].value_type == "str"
+    assert result.model.variables[1].value_type == "bool"
+
+
+def test_model_extractor_maps_constraint_types_from_prompt() -> None:
+    ext = ModelExtractor(client=MagicMock())
+    payload = (
+        '{"variables":[{"name":"x","type":"continuous","description":"","unit":""}],'
+        '"relations":[],"constraints":['
+        '{"type":"range","expression":"0<=x<=1","description":"d"}'
+        '],"confidence":0.5,"reasoning":""}'
+    )
+    result = ext._parse_response(payload)
+    assert result.success and result.model is not None
+    assert result.model.constraints[0].constraint_type == "boundary"
+
+
 def test_react_parse_llm_response_basic() -> None:
     agent = ReactAgent(
         chat_model=MagicMock(),
