@@ -145,6 +145,16 @@ function isModelingStreamApiAvailable() {
     );
 }
 
+/** 建模半打断 / 强打断（与流式会话 stream_id 绑定）。 */
+function isModelingStreamInterruptApiAvailable() {
+    const api = window.pywebview?.api;
+    return !!(
+        api &&
+        typeof api.signal_modeling_soft_stop === 'function' &&
+        typeof api.signal_modeling_hard_stop === 'function'
+    );
+}
+
 function removeModelingStreamLiveBubbles() {
     document.querySelectorAll('.message.assistant.modeling-stream-live').forEach((el) => {
         el.remove();
@@ -167,6 +177,36 @@ function appendModelingStreamLiveBubble(streamId) {
         </div>
     `;
     container.appendChild(wrap);
+    if (isModelingStreamInterruptApiAvailable()) {
+        const mc = wrap.querySelector('.message-content');
+        const hint = wrap.querySelector('.modeling-stream-hint');
+        const row = document.createElement('div');
+        row.className = 'modeling-stream-interrupt-row';
+        row.style.cssText = 'display:flex;gap:8px;margin:6px 0;flex-wrap:wrap;';
+        const sid = String(streamId || '');
+        const mkBtn = (label, fnName) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.style.cssText =
+                'font-size:12px;padding:4px 10px;cursor:pointer;border-radius:4px;border:1px solid #888;background:#2a2a2a;color:#e0e0e0;';
+            b.addEventListener('click', async () => {
+                try {
+                    const api = window.pywebview?.api;
+                    if (!api || typeof api[fnName] !== 'function') return;
+                    await api[fnName](sid);
+                } catch (e) {
+                    console.warn(fnName, e);
+                }
+            });
+            return b;
+        };
+        row.appendChild(mkBtn('半打断（本步后停）', 'signal_modeling_soft_stop'));
+        row.appendChild(mkBtn('强打断', 'signal_modeling_hard_stop'));
+        if (mc && hint) {
+            mc.insertBefore(row, hint);
+        }
+    }
     container.scrollTop = container.scrollHeight;
     return wrap.querySelector('.modeling-stream-text');
 }

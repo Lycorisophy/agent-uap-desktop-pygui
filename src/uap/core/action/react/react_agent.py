@@ -53,6 +53,7 @@ from uap.core.action.react.context_compression import (
     run_compression_pipeline,
 )
 from uap.core.action.react.context_helpers import format_system_model_for_prompt
+from uap.infrastructure.modeling_stream_hub import USER_HARD_STOP, USER_SOFT_STOP
 from uap.core.action.react.lc_tools import atomic_skills_to_lc_tools
 
 _LOG = logging.getLogger("uap.core.action.react")
@@ -220,6 +221,8 @@ class ReactAgent:
         total_duration = int((time.perf_counter() - start_time) * 1000)
 
         success = len(steps) > 0 and steps[-1].action == "FINAL_ANSWER"
+        if final.get("error_message") in (USER_SOFT_STOP, USER_HARD_STOP):
+            success = False
         pending_user_input = bool(
             steps
             and steps[-1].action == "ask_user"

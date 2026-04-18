@@ -9,6 +9,11 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from uap.core.action.plan.plan_agent import PlanAgent, PlanStep, StepStatus
+from uap.infrastructure.modeling_stream_hub import (
+    USER_HARD_STOP,
+    USER_SOFT_STOP,
+    get_interrupt_pair_from_context,
+)
 
 _LOG = logging.getLogger("uap.core.action.plan.graph")
 
@@ -55,6 +60,16 @@ def compile_plan_graph(agent: PlanAgent, lc_tools: list) -> Any:
     def planner(state: PlanState) -> dict[str, Any]:
         if state.get("finished"):
             return {}
+        extra0 = state.get("extra_context") or {}
+        ip0 = get_interrupt_pair_from_context(
+            extra0 if isinstance(extra0, dict) else None
+        )
+        if ip0 and ip0[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+            }
         t0 = float(state["start_time"])
         if (time.perf_counter() - t0) > agent.max_time:
             return {
@@ -75,6 +90,16 @@ def compile_plan_graph(agent: PlanAgent, lc_tools: list) -> Any:
                     "error_message": "max_replans_exceeded",
                 }
             merged = agent.replan_from_state(state)
+            extra2 = state.get("extra_context") or {}
+            ip2 = get_interrupt_pair_from_context(
+                extra2 if isinstance(extra2, dict) else None
+            )
+            if ip2 and ip2[1].is_set():
+                return {
+                    "finished": True,
+                    "success": False,
+                    "error_message": USER_HARD_STOP,
+                }
             if not merged:
                 return {
                     "finished": True,
@@ -91,6 +116,16 @@ def compile_plan_graph(agent: PlanAgent, lc_tools: list) -> Any:
             state.get("extra_context") or {},
             state["dst_session"],
         )
+        extra1 = state.get("extra_context") or {}
+        ip1 = get_interrupt_pair_from_context(
+            extra1 if isinstance(extra1, dict) else None
+        )
+        if ip1 and ip1[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+            }
         if not new_steps:
             return {
                 "finished": True,
@@ -115,9 +150,25 @@ def compile_plan_graph(agent: PlanAgent, lc_tools: list) -> Any:
         if idx < 0:
             return {}
 
+        extra_e = state.get("extra_context") or {}
+        ip_e = get_interrupt_pair_from_context(
+            extra_e if isinstance(extra_e, dict) else None
+        )
+        if ip_e and ip_e[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+            }
+
         updated = agent.execute_step(steps[idx], state["session_id"])
         steps[idx] = updated
-        return {"plan": _dump(steps)}
+        out: dict[str, Any] = {"plan": _dump(steps)}
+        if ip_e and ip_e[0].is_set():
+            out["finished"] = True
+            out["success"] = False
+            out["error_message"] = USER_SOFT_STOP
+        return out
 
     def evaluator(state: PlanState) -> dict[str, Any]:
         if state.get("finished"):

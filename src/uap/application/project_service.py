@@ -26,6 +26,7 @@ from uap.infrastructure.knowledge import ProjectKnowledgeService
 from uap.infrastructure.llm import ModelExtractor
 from uap.infrastructure.llm.factory import create_llm_chat_client
 from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
+from uap.infrastructure.modeling_stream_hub import USER_HARD_STOP, USER_SOFT_STOP
 from uap.infrastructure.persistence.project_store import ProjectStore, user_workspace_dir
 from uap.project.models import (
     ModelSource,
@@ -39,6 +40,14 @@ from uap.react.ask_user_card import build_ask_user_confirmation_card
 from uap.react.context_helpers import format_system_model_for_prompt
 
 _LOG = logging.getLogger("uap.project_service")
+
+
+def _modeling_stop_reason(error_message: str | None) -> str | None:
+    if error_message == USER_SOFT_STOP:
+        return "soft"
+    if error_message == USER_HARD_STOP:
+        return "hard"
+    return None
 
 
 class ProjectService:
@@ -801,6 +810,7 @@ class ProjectService:
             "business_success": self._business_modeling_success(result.success, substantive),
             "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
+            "stop_reason": _modeling_stop_reason(result.error_message),
         }
         self._persist_dst_project_aggregate(project_id, dst_manager)
         sol = self._maybe_persist_generated_skill_from_modeling(
@@ -910,6 +920,7 @@ class ProjectService:
             "business_success": self._business_modeling_success(result.success, substantive),
             "tool_calls": tool_calls,
             "replan_count": result.replan_count,
+            "stop_reason": _modeling_stop_reason(result.error_message),
         }
         self._persist_dst_project_aggregate(project_id, dst_manager)
         sol = self._maybe_persist_generated_skill_from_modeling(
@@ -933,6 +944,7 @@ class ProjectService:
         intent_scene: dict | None = None,
         original_user_message: str | None = None,
         on_llm_token: Optional[Callable[[str], None]] = None,
+        interrupt_handles: dict | None = None,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
@@ -950,6 +962,8 @@ class ProjectService:
                 context.update(intent_scene)
             if on_llm_token is not None:
                 context["_on_llm_token"] = on_llm_token
+            if interrupt_handles:
+                context["_interrupt"] = interrupt_handles
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"

@@ -12,6 +12,11 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from uap.core.action.react.react_agent import ReactAgent, ReactStep
+from uap.infrastructure.modeling_stream_hub import (
+    USER_HARD_STOP,
+    USER_SOFT_STOP,
+    get_interrupt_pair_from_context,
+)
 from uap.skill.models import ActionNode, ActionType
 
 _LOG = logging.getLogger("uap.core.action.react.graph")
@@ -118,6 +123,19 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         if state.get("finished"):
             return {}
 
+        extra_ctx0 = state.get("extra_context") or {}
+        ip0 = get_interrupt_pair_from_context(
+            extra_ctx0 if isinstance(extra_ctx0, dict) else None
+        )
+        if ip0 and ip0[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+                "pending_native": None,
+                "pending_text": None,
+            }
+
         start_time = float(state["start_time"])
         if (time.perf_counter() - start_time) > agent.max_time:
             _LOG.warning("[react_graph] Session timed out")
@@ -189,10 +207,32 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
             if callable(raw_cb):
                 stream_cb = raw_cb
 
+        ip_ctx = (
+            get_interrupt_pair_from_context(extra_ctx)
+            if isinstance(extra_ctx, dict)
+            else None
+        )
+        if ip_ctx and ip_ctx[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+                "pending_native": None,
+                "pending_text": None,
+            }
+
         try:
             if stream_cb is not None and hasattr(bound, "stream"):
                 stream_chunks: list[AIMessageChunk] = []
                 for piece in bound.stream([HumanMessage(content=ctx)]):
+                    if ip_ctx and ip_ctx[1].is_set():
+                        return {
+                            "finished": True,
+                            "success": False,
+                            "error_message": USER_HARD_STOP,
+                            "pending_native": None,
+                            "pending_text": None,
+                        }
                     if not isinstance(piece, AIMessageChunk):
                         piece = AIMessageChunk(content=str(piece))
                     stream_chunks.append(piece)
@@ -359,6 +399,19 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         else:
             return {"pending_native": None, "pending_text": None}
 
+        extra_act = state.get("extra_context") or {}
+        ip_a = get_interrupt_pair_from_context(
+            extra_act if isinstance(extra_act, dict) else None
+        )
+        if ip_a and ip_a[1].is_set():
+            return {
+                "finished": True,
+                "success": False,
+                "error_message": USER_HARD_STOP,
+                "pending_native": None,
+                "pending_text": None,
+            }
+
         if action == "FINAL_ANSWER" or not action:
             fin = ReactStep(
                 step_id=step_id,
@@ -403,12 +456,17 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         )
 
         extra_tc = 1 if not is_error else 0
-        return {
+        out: dict[str, Any] = {
             "steps": new_steps,
             "total_tool_calls": int(state.get("total_tool_calls", 0)) + extra_tc,
             "pending_native": None,
             "pending_text": None,
         }
+        if ip_a and ip_a[0].is_set():
+            out["finished"] = True
+            out["success"] = False
+            out["error_message"] = USER_SOFT_STOP
+        return out
 
     def route_after_act(state: _ReactState) -> Any:
         if state.get("finished"):

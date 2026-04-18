@@ -148,6 +148,7 @@ class ProjectsApiMixin:
         user_message_raw: str,
         mode: str | None,
         on_llm_token: Callable[[str], None] | None = None,
+        modeling_stream_id: str | None = None,
     ) -> dict:
         """
         在已将本轮用户消息写入 store 后执行意图分类与 ReAct/Plan，并持久化助手回复。
@@ -175,6 +176,12 @@ class ProjectsApiMixin:
         prior = messages[:-1] if len(messages) > 1 else []
         task_for_agent = build_modeling_task_with_prior_dialogue(prior, user_message_raw)
 
+        interrupt_handles = None
+        if modeling_stream_id and str(modeling_stream_id).strip():
+            interrupt_handles = self._modeling_stream_hub.get_interrupt_handles(
+                str(modeling_stream_id).strip()
+            )
+
         result = self.project_service.react_modeling(
             project_id=project_id,
             user_message=task_for_agent,
@@ -184,6 +191,7 @@ class ProjectsApiMixin:
             intent_scene=intent_scene if intent_scene else None,
             original_user_message=user_message_raw,
             on_llm_token=on_llm_token,
+            interrupt_handles=interrupt_handles,
         )
         _LOG.info(
             "[API] modeling result: ok=%s, success=%s, mode_used=%s",
@@ -280,6 +288,7 @@ class ProjectsApiMixin:
                 "mode_requested": result.get("mode_requested"),
                 "plan": result.get("plan"),
                 "replan_count": result.get("replan_count", 0),
+                "stop_reason": result.get("stop_reason"),
             }
             if result.get("solidified_skill"):
                 body["solidified_skill"] = result["solidified_skill"]
@@ -368,7 +377,9 @@ class ProjectsApiMixin:
                 def cb(t: str) -> None:
                     hub.append_token(stream_id, t)
 
-                out = api._modeling_chat_core_body(project_id, message, mode, cb)
+                out = api._modeling_chat_core_body(
+                    project_id, message, mode, cb, modeling_stream_id=stream_id
+                )
                 hub.finish(stream_id, out)
             except Exception as ex:
                 _LOG.exception("[API] modeling stream worker: %s", ex)
@@ -376,6 +387,26 @@ class ProjectsApiMixin:
 
         run_in_thread(worker, daemon=True)
         return {"ok": True, "stream_id": stream_id}
+
+    def signal_modeling_soft_stop(self, stream_id: str) -> dict:
+        """半打断：当前 ReAct 轮次或 Plan 步骤结束后停止。"""
+        sid = (stream_id or "").strip()
+        if not sid:
+            return {"ok": False, "error": "Invalid stream_id"}
+        if self._modeling_stream_hub.get_interrupt_handles(sid) is None:
+            return {"ok": False, "error": "unknown_stream_id"}
+        signaled = self._modeling_stream_hub.signal_soft_stop(sid)
+        return {"ok": True, "signaled": signaled}
+
+    def signal_modeling_hard_stop(self, stream_id: str) -> dict:
+        """强打断：尽快结束建模（流式 LLM 可中断；同步 invoke 需等当前调用结束）。"""
+        sid = (stream_id or "").strip()
+        if not sid:
+            return {"ok": False, "error": "Invalid stream_id"}
+        if self._modeling_stream_hub.get_interrupt_handles(sid) is None:
+            return {"ok": False, "error": "unknown_stream_id"}
+        signaled = self._modeling_stream_hub.signal_hard_stop(sid)
+        return {"ok": True, "signaled": signaled}
 
     def poll_modeling_chat_stream(self, stream_id: str) -> dict:
         """
