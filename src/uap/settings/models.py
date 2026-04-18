@@ -192,7 +192,7 @@ class AgentConfig(BaseModel):
     builtin_scheduler_enabled: bool = True
     modeling_agent_mode: str = Field(
         default="react",
-        description="建模默认模式（react/plan/auto）；API 每轮传入的 mode 优先于本字段",
+        description="建模默认模式（react/plan/auto/ask）；ask=只读安全技能 ReAct；API 每轮 mode 优先",
     )
     modeling_kb_tool_enabled: bool = Field(
         default=True,

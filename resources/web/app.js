@@ -2073,7 +2073,9 @@ function renderModelingProcessPanel(response) {
 
     const mu = ((response && response.mode_used) || '').toString().trim().toLowerCase();
     const mr = ((response && response.mode_requested) || '').toString().trim().toLowerCase();
-    let modeLabel = mu === 'plan' ? 'Plan' : 'ReAct';
+    let modeLabel = 'ReAct';
+    if (mu === 'plan') modeLabel = 'Plan';
+    else if (mu === 'ask') modeLabel = 'Ask';
     if (mr === 'auto' && mu) modeLabel = `Auto→${mu}`;
 
     const steps = (response && response.steps) || [];

@@ -80,6 +80,14 @@ def format_execution_mode_hint(mode_requested: str | None) -> str:
             "用户选择的是 **auto**：后续由系统在 **ReAct** 与 **Plan** 中自动择一执行；"
             "分类只需知晓用户未强制指定单一路径，并结合对话判断意图与场景。"
         )
+    if m == "ask":
+        return (
+            "用户选择的是 **ask（只读问答）**：本轮仅允许 **检索/阅读类** 工具（如网络搜索、项目知识库、"
+            "只读文件浏览），**不会**执行建模落盘、数据流水线、删改文件等操作。"
+            "除下方规定的 JSON 字段外，**必须**输出 `read_only_fit`（布尔）："
+            "为 `true` 表示用户诉求**主要**可通过检索与阅读满足；"
+            "为 `false` 表示明显需要改模型、写文件、跑数据处理等（助手仍只能以文字说明局限）。"
+        )
     return f"用户请求模式：**{m}**（请结合对话判断意图与场景）。"
 
 
@@ -193,14 +201,18 @@ def classify_intent_scene(
     current_user_line: str,
     *,
     mode_requested: str | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """
-    调用分类模型，返回 ``classified_intent``、``classified_scene`` 键。
+    调用分类模型，返回 ``classified_intent``、``classified_scene``，可选 ``classified_read_only_fit``。
     解析失败时用关键词回退 intent，scene 为 ``general``。
     """
     fb_intent = _keyword_intent_fallback(current_user_line)
     if not (dialogue_text or "").strip():
-        return {"classified_intent": fb_intent, "classified_scene": "general"}
+        return {
+            "classified_intent": fb_intent,
+            "classified_scene": "general",
+            "classified_read_only_fit": None,
+        }
 
     llm_cfg = effective_classifier_llm(cfg)
     try:
@@ -216,16 +228,32 @@ def classify_intent_scene(
         obj = _extract_json_object(str(text))
         if not obj:
             _LOG.debug("[IntentClassifier] JSON parse failed, snippet=%r", text[:400])
-            return {"classified_intent": fb_intent, "classified_scene": "general"}
+            return {
+                "classified_intent": fb_intent,
+                "classified_scene": "general",
+                "classified_read_only_fit": None,
+            }
         raw_intent = (obj.get("intent") or "").strip().lower()
         intent = raw_intent if raw_intent in _VALID_INTENTS else fb_intent
         scene = (obj.get("scene") or "").strip() or "general"
         if len(scene) > 64:
             scene = scene[:63] + "…"
-        return {"classified_intent": intent, "classified_scene": scene}
+        out: dict[str, Any] = {
+            "classified_intent": intent,
+            "classified_scene": scene,
+            "classified_read_only_fit": None,
+        }
+        rof = obj.get("read_only_fit")
+        if isinstance(rof, bool):
+            out["classified_read_only_fit"] = rof
+        return out
     except Exception:
         _LOG.exception("[IntentClassifier] invoke failed")
-        return {"classified_intent": fb_intent, "classified_scene": "general"}
+        return {
+            "classified_intent": fb_intent,
+            "classified_scene": "general",
+            "classified_read_only_fit": None,
+        }
 
 
 def run_modeling_intent_scene_if_enabled(
@@ -234,7 +262,7 @@ def run_modeling_intent_scene_if_enabled(
     current_user_message: str,
     *,
     mode_requested: str | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """
     每轮建模默认跑意图/场景分类 LLM。
 

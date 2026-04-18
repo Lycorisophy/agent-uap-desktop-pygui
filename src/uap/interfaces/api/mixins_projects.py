@@ -217,6 +217,8 @@ class ProjectsApiMixin:
                     label = f"Auto→{mu}"
                 elif mu == "plan":
                     label = "Plan"
+                elif mu == "ask":
+                    label = "Ask"
                 else:
                     label = "ReAct"
                 steps_info = f"\n\n[{label}执行: {len(result['steps'])}步]"
@@ -320,7 +322,7 @@ class ProjectsApiMixin:
         ``success``、``modeling_substantive`` 与 ``business_success`` 含义见 ``docs/MODELING_DELIVERY_PLAN.md`` 第五节。
         渐进式输出请用 ``start_modeling_chat_stream`` /
         ``poll_modeling_chat_stream``。
-        ``mode`` 为 ``auto`` / ``react`` / ``plan``，省略时使用配置 ``modeling_agent_mode``。
+        ``mode`` 为 ``auto`` / ``react`` / ``plan`` / ``ask``，省略时使用配置 ``modeling_agent_mode``。
         """
         _LOG.info(
             "[API] modeling_chat called: project_id=%s, message_len=%d, mode=%s",

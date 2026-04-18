@@ -35,9 +35,12 @@ def _intent_scene_block(extra: dict | None) -> str:
     if ex.get("deep_search_cot_mode"):
         parts.append("- 本轮建模模式: **深度搜索 + 显式思维链**（规划步骤说明须写清依据；执行中需要外部事实时多用 web_search）")
     if mr:
-        parts.append(f"- 用户请求模式: {mr}（react / plan / auto）")
+        parts.append(f"- 用户请求模式: {mr}（react / plan / auto / ask）")
     if mu:
-        parts.append(f"- 本轮实际执行模式: {mu}（react 或 plan）")
+        parts.append(f"- 本轮实际执行模式: {mu}（react / plan / ask）")
+    rof = ex.get("classified_read_only_fit")
+    if isinstance(rof, bool):
+        parts.append(f"- 只读问答适配: {rof}（分类器 read_only_fit）")
     if ci:
         parts.append(f"- 意图分类: {ci}")
     if cs:

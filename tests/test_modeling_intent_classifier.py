@@ -27,6 +27,7 @@ def test_run_modeling_intent_rounds_zero_still_classifies(cfg_zero_rounds):
         m_cls.return_value = {
             "classified_intent": "general",
             "classified_scene": "通用",
+            "classified_read_only_fit": None,
         }
         out = run_modeling_intent_scene_if_enabled(
             cfg_zero_rounds,
@@ -45,3 +46,6 @@ def test_format_execution_mode_hint_covers_modes():
     assert "react" in format_execution_mode_hint("react").lower()
     assert "plan" in format_execution_mode_hint("plan").lower()
     assert "auto" in format_execution_mode_hint("auto").lower()
+    ask_h = format_execution_mode_hint("ask")
+    assert "ask" in ask_h.lower() or "只读" in ask_h
+    assert "read_only_fit" in ask_h.lower() or "read_only_fit" in ask_h

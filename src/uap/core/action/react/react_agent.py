@@ -410,13 +410,18 @@ class ReactAgent:
         lines: list[str] = []
         if req:
             lines.append(
-                f"- **用户请求模式**：`{req}`（`react` / `plan` / `auto`；"
-                "`auto` 表示由系统在 ReAct 与 Plan 中择一）。"
+                f"- **用户请求模式**：`{req}`（`react` / `plan` / `auto` / `ask`；"
+                "`auto` 由系统在 ReAct 与 Plan 中择一；`ask` 为只读安全技能 ReAct）。"
             )
         if used:
-            lines.append(
-                f"- **本轮实际执行模式**：`{used}`（本轮图以 ReAct 或 Plan 之一运行）。"
-            )
+            if used == "ask":
+                lines.append(
+                    "- **本轮实际执行模式**：`ask`（ReAct 图；仅检索/知识库/只读文件等安全工具）。"
+                )
+            else:
+                lines.append(
+                    f"- **本轮实际执行模式**：`{used}`（本轮图以 ReAct 或 Plan 之一运行）。"
+                )
         return "\n" + "\n".join(lines) + "\n"
 
     def _deep_search_cot_harness_suffix(self, extra_context: dict | None) -> str:

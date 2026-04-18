@@ -714,12 +714,6 @@ class ProjectService:
 
         _LOG.info("[Modeling/ReAct] project=%s msg=%s", project_id, user_message[:50])
         dst_manager = DstManager()
-        skills_registry: dict = dict(build_modeling_atomic_registry())
-        if web_search_func:
-            skills_registry["web_search"] = create_web_search_skill(web_search_func)
-        skills_registry["extract_model"] = self._create_model_extraction_skill()
-        skills_registry["define_variable"] = self._create_variable_definition_skill()
-        skills_registry["discover_relations"] = self._create_relation_discovery_skill()
 
         proj_dir = Path(project.folder_path or project.workspace or "")
         if not str(proj_dir) or not proj_dir.is_dir():
@@ -727,24 +721,47 @@ class ProjectService:
             proj_dir.mkdir(parents=True, exist_ok=True)
         if not proj_dir.is_dir():
             proj_dir = self._store.resolve_project_directory(project_id)
-        skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
 
-        if getattr(self._cfg.agent, "modeling_win11_fs_skills_enabled", True):
-            from uap.react.win11_project_fs_skills import create_win11_project_fs_skill_bundle
+        ask_only = bool(context.get("ask_mode_safe_tools_only"))
+        if ask_only:
+            from uap.application.ask_mode_registry import build_ask_mode_skills_registry
 
-            skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
-
-        if getattr(self._cfg.agent, "modeling_win_cli_skills_enabled", True) and sys.platform.startswith(
-            "win"
-        ):
-            from uap.react.win_cli_skills import create_win_cli_skill_bundle
-
-            skills_registry.update(create_win_cli_skill_bundle(str(proj_dir)))
-
-        if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
-            skills_registry["search_knowledge"] = create_search_knowledge_skill(
-                project_id, self._knowledge
+            skills_registry = build_ask_mode_skills_registry(
+                project_id=project_id,
+                proj_dir=proj_dir,
+                cfg=self._cfg,
+                knowledge=self._knowledge,
+                web_search_func=web_search_func,
+                create_file_access_skill=create_file_access_skill,
+                create_web_search_skill=create_web_search_skill,
+                create_search_knowledge_skill=create_search_knowledge_skill,
             )
+        else:
+            skills_registry = dict(build_modeling_atomic_registry())
+            if web_search_func:
+                skills_registry["web_search"] = create_web_search_skill(web_search_func)
+            skills_registry["extract_model"] = self._create_model_extraction_skill()
+            skills_registry["define_variable"] = self._create_variable_definition_skill()
+            skills_registry["discover_relations"] = self._create_relation_discovery_skill()
+
+            skills_registry["file_access"] = create_file_access_skill(project_folder=str(proj_dir))
+
+            if getattr(self._cfg.agent, "modeling_win11_fs_skills_enabled", True):
+                from uap.react.win11_project_fs_skills import create_win11_project_fs_skill_bundle
+
+                skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
+
+            if getattr(self._cfg.agent, "modeling_win_cli_skills_enabled", True) and sys.platform.startswith(
+                "win"
+            ):
+                from uap.react.win_cli_skills import create_win_cli_skill_bundle
+
+                skills_registry.update(create_win_cli_skill_bundle(str(proj_dir)))
+
+            if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
+                skills_registry["search_knowledge"] = create_search_knowledge_skill(
+                    project_id, self._knowledge
+                )
 
         react_max_time = float(getattr(self._cfg.agent, "react_max_time_seconds", 300.0) or 300.0)
         max_ask_user = int(getattr(self._cfg.agent, "react_max_ask_user_per_turn", 1) or 1)
@@ -963,10 +980,10 @@ class ProjectService:
         deep_search_cot_mode: bool = False,
     ) -> dict:
         """
-        **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
+        **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto`` / ``ask``（``ask``=只读安全技能 ReAct）。
 
         Args:
-            mode: ``react`` | ``plan`` | ``auto``；为 ``None`` 或空时使用 ``UapConfig.agent.modeling_agent_mode``。
+            mode: ``react`` | ``plan`` | ``auto`` | ``ask``；为 ``None`` 或空时使用 ``UapConfig.agent.modeling_agent_mode``。
             original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
             on_llm_token: 可选；ReAct ``decide`` 中 LLM 流式输出时按文本片段回调（用于前端轮询拉流）。
             deep_search_cot_mode: 为真时注入 ``context["deep_search_cot_mode"]``，启用更深检索与显式思维链提示。
@@ -994,7 +1011,7 @@ class ProjectService:
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"
-            if mode_requested not in ("auto", "react", "plan"):
+            if mode_requested not in ("auto", "react", "plan", "ask"):
                 _LOG.warning("[Modeling] Unknown mode %r, using react", mode_requested)
                 mode_requested = "react"
 
@@ -1003,7 +1020,10 @@ class ProjectService:
                 if (original_user_message is not None and str(original_user_message).strip())
                 else user_message
             )
-            if mode_requested == "auto":
+            if mode_requested == "ask":
+                mode_used = "ask"
+                context["ask_mode_safe_tools_only"] = True
+            elif mode_requested == "auto":
                 mode_used = self._decide_mode_by_task(mode_decision_line, context, chat_model)
             else:
                 mode_used = mode_requested
