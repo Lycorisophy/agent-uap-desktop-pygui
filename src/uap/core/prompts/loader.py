@@ -7,7 +7,7 @@ from pathlib import Path
 from string import Formatter
 from typing import Any
 
-from uap.prompts.ids import PromptId
+from uap.core.prompts.ids import PromptId
 
 _USER_DIR = Path.home() / ".uap" / "prompts"
 _ASSETS = "assets"
@@ -23,7 +23,7 @@ def load_raw(prompt_id: PromptId) -> str:
     user_path = _USER_DIR / name
     if user_path.is_file():
         return user_path.read_text(encoding="utf-8")
-    ref = resources.files("uap.prompts").joinpath(_ASSETS, name)
+    ref = resources.files("uap.core.prompts").joinpath(_ASSETS, name)
     if not ref.is_file():
         raise FileNotFoundError(f"Missing prompt asset: {name}")
     return ref.read_text(encoding="utf-8")

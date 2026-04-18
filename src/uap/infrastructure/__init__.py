@@ -1,8 +1,8 @@
 """
-基础设施层：存储、外部 HTTP、向量、调度等实现。
+基础设施层（过渡兼容）：存储、外部 HTTP、向量、调度等。
 
-- ``uap.infrastructure.persistence``：项目目录与 JSON 落盘
-- ``uap.infrastructure.llm``：Ollama / 模型抽取
+- 数据访问主入口：``uap.persistence``（本包 ``persistence`` 子模块转发）
+- LLM 防腐层主入口：``uap.adapters.llm``（本包 ``llm`` 子模块转发）
 - ``uap.infrastructure.vector``：嵌入与检索
 - ``uap.infrastructure.scheduler``：定时任务
 """

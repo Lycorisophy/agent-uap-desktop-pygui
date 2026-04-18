@@ -1,6 +1,6 @@
-"""文件型持久化与项目目录布局。"""
+"""兼容入口：数据访问实现位于 ``uap.persistence``。"""
 
-from uap.infrastructure.persistence.project_store import (
+from uap.persistence import (
     ProjectStore,
     resolve_projects_root,
     user_workspace_dir,

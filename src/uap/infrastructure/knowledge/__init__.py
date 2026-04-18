@@ -1,5 +1,5 @@
-"""项目知识库（Milvus Lite）。"""
+"""兼容入口：实现位于 ``uap.core.memory.knowledge``。"""
 
-from uap.infrastructure.knowledge.milvus_project_kb import ProjectKnowledgeService
+from uap.core.memory.knowledge import ProjectKnowledgeService
 
 __all__ = ["ProjectKnowledgeService"]

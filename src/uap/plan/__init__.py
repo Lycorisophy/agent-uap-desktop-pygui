@@ -1,10 +1,7 @@
-"""Plan 行动模式（先规划、再执行、可重规划）。"""
+"""兼容入口：实现位于 ``uap.core.action.plan``。"""
 
-from uap.plan.plan_agent import PlanAgent, PlanResult, PlanStep, StepStatus
+import uap.core.action.plan as _impl
 
-__all__ = [
-    "PlanAgent",
-    "PlanResult",
-    "PlanStep",
-    "StepStatus",
-]
+from uap.core.action.plan import *  # noqa: F403
+
+__all__ = list(_impl.__all__)

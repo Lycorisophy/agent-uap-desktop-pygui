@@ -1,21 +1,27 @@
 """
-UAP LLM 集成（基础设施）：Ollama 客户端与模型抽取。
+兼容入口：LLM 实现已迁至 ``uap.adapters.llm``（防腐层）。
+
+新代码请 ``from uap.adapters.llm import ...``。
 """
 
-from uap.infrastructure.llm.factory import create_llm_chat_client
-from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
-from uap.infrastructure.llm.model_extractor import ModelExtractor, create_default_extractor
-from uap.infrastructure.llm.ollama_client import OllamaClient, OllamaConfig
-from uap.infrastructure.llm.openai_compatible_client import OpenAICompatibleChatClient
-from uap.infrastructure.llm.response_text import assistant_text_from_chat_response
+from uap.adapters.llm import (
+    ModelExtractor,
+    OllamaClient,
+    OllamaConfig,
+    OpenAICompatibleChatClient,
+    assistant_text_from_chat_response,
+    create_default_extractor,
+    create_langchain_chat_model,
+    create_llm_chat_client,
+)
 
 __all__ = [
+    "ModelExtractor",
     "OllamaClient",
     "OllamaConfig",
     "OpenAICompatibleChatClient",
-    "create_llm_chat_client",
-    "create_langchain_chat_model",
     "assistant_text_from_chat_response",
-    "ModelExtractor",
     "create_default_extractor",
+    "create_langchain_chat_model",
+    "create_llm_chat_client",
 ]
