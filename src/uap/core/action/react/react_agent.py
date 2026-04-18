@@ -213,6 +213,7 @@ class ReactAgent:
                 "pending_native": None,
                 "pending_text": None,
                 "current_step_id": 0,
+                "last_llm_plain": None,
             }
         )
 
@@ -254,6 +255,59 @@ class ReactAgent:
         )
 
         return result
+
+    _FINAL_ANSWER_OBSERVATION_MAX = 120_000
+
+    def final_answer_observation(self, parsed: dict[str, Any], response: Any | None = None) -> str:
+        """
+        将 ``FINAL_ANSWER`` 解析结果与原始模型文本转为对用户/轨迹可见的 observation。
+
+        历史上 LangGraph 曾将此处写死为「任务完成」，导致含 Markdown 代码块/Mermaid 的最终回复丢失。
+        """
+        fa = parsed.get("final_answer")
+        if isinstance(fa, str) and fa.strip():
+            out = fa.strip()
+        else:
+            plain = ""
+            if response is not None:
+                if isinstance(response, str):
+                    plain = response
+                else:
+                    plain = (
+                        self._assistant_message_plain_text(
+                            response, include_reasoning=True
+                        )
+                        or ""
+                    )
+            tail = self._tail_after_final_answer_marker(plain)
+            out = tail.strip() if tail else ""
+
+        if not out:
+            th = (parsed.get("thought") or "").strip()
+            if th:
+                out = th
+
+        if not out:
+            out = "任务完成"
+
+        if len(out) > self._FINAL_ANSWER_OBSERVATION_MAX:
+            out = (
+                out[: self._FINAL_ANSWER_OBSERVATION_MAX - 80]
+                + "\n\n…（输出过长已截断）"
+            )
+        return out
+
+    @staticmethod
+    def _tail_after_final_answer_marker(text: str) -> str:
+        """取最后一处 ``FINAL_ANSWER:`` / ``最终答案:`` 之后的全文（支持多行围栏代码）。"""
+        if not text or not str(text).strip():
+            return ""
+        matches = list(
+            re.finditer(r"(?is)(?:FINAL_ANSWER|最终答案)\s*[:：]\s*", text)
+        )
+        if not matches:
+            return ""
+        return text[matches[-1].end() :].strip()
 
     def _build_context(
         self,
@@ -448,8 +502,15 @@ class ReactAgent:
 
         return "当前状态:\n" + "\n".join(parts) if parts else "DST状态: 活跃"
 
-    def _assistant_message_plain_text(self, response: Any) -> str:
-        """从 LangChain 消息或裸 dict/str 中取出可解析的 assistant 文本（含多行 Thought）。"""
+    def _assistant_message_plain_text(
+        self, response: Any, *, include_reasoning: bool = True
+    ) -> str:
+        """从 LangChain 消息或裸 dict/str 中取出可解析的 assistant 文本（含多行 Thought）。
+
+        ``include_reasoning``：为假时忽略 ``type: reasoning`` / ``reasoning_content`` 块，与
+        「深度搜索 + 显式思维链」开关对齐，避免未勾选时轨迹仍被厂商推理通道填满。
+        提取 ``FINAL_ANSWER`` 全文时请传 ``include_reasoning=True``，以免答案仅出现在推理块时丢失。
+        """
         if hasattr(response, "content") and not isinstance(response, dict):
             c = getattr(response, "content", None)
             if isinstance(c, str):
@@ -464,9 +525,14 @@ class ReactAgent:
                         if t == "text":
                             parts.append(str(block.get("text") or ""))
                         elif t in ("reasoning", "reasoning_content"):
-                            parts.append(
-                                str(block.get("text") or block.get("reasoning") or "")
-                            )
+                            if include_reasoning:
+                                parts.append(
+                                    str(
+                                        block.get("text")
+                                        or block.get("reasoning")
+                                        or ""
+                                    )
+                                )
                 return "\n".join(parts)
             return str(c or "")
         return assistant_text_from_chat_response(response)
@@ -565,14 +631,18 @@ class ReactAgent:
                 except (json.JSONDecodeError, TypeError):
                     result["action_input"] = {"raw": line0}
 
-    def _parse_llm_response(self, response: Any) -> dict:
+    def _parse_llm_response(
+        self, response: Any, *, include_reasoning_in_plain: bool = True
+    ) -> dict:
         """
         **提示词后处理**：把模型自由文本切成 thought/action/input。
 
         与 **工具系统**的契约：Action 必须为注册表中的 skill_id，或 FINAL_ANSWER /
         ask_user 等保留字。
         """
-        text = self._assistant_message_plain_text(response)
+        text = self._assistant_message_plain_text(
+            response, include_reasoning=include_reasoning_in_plain
+        )
         result: dict = {
             "thought": "",
             "action": "",

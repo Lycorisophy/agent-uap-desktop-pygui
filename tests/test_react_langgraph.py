@@ -115,6 +115,33 @@ def test_build_llm_user_content_includes_modeling_mode_suffix() -> None:
     assert "本轮实际执行模式" in out and "react" in out
 
 
+def test_final_answer_observation_keeps_multiline_markdown() -> None:
+    """FINAL_ANSWER 后多行围栏须进入 observation，勿丢弃为「任务完成」。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=DstManager(),
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    raw = """Thought: ok
+FINAL_ANSWER:
+```python
+print(1)
+```
+
+```mermaid
+flowchart LR
+  A-->B
+```
+"""
+    obs = agent.final_answer_observation({"action": "FINAL_ANSWER", "thought": ""}, raw)
+    assert "```python" in obs
+    assert "mermaid" in obs
+    assert obs != "任务完成"
+
+
 def test_parse_llm_response_list_content_blocks() -> None:
     """与流式聚合一致：content 为块列表时须解析出 Action（勿依赖 str(list)）。"""
     m = MagicMock(spec=BaseChatModel)
@@ -138,6 +165,40 @@ def test_parse_llm_response_list_content_blocks() -> None:
     parsed = agent._parse_llm_response(msg)
     assert (parsed.get("action") or "").strip() == "ask_user"
     assert parsed.get("action_input", {}).get("question")
+
+
+def test_parse_llm_response_excludes_reasoning_blocks_when_disabled() -> None:
+    """未勾选「深度搜索+思维链」时解析应忽略厂商 reasoning 块，仅看 text 通道。"""
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    inner = (
+        "Thought: 仅正文\n"
+        "Action: ask_user\n"
+        'Action Input: {"question": "q", "options": ["a"]}\n'
+    )
+    msg = AIMessage(
+        content=[
+            {"type": "reasoning", "text": "很长的内部推理不应进入 thought 字段"},
+            {"type": "text", "text": inner},
+        ]
+    )
+    parsed_off = agent._parse_llm_response(msg, include_reasoning_in_plain=False)
+    assert (parsed_off.get("action") or "").strip() == "ask_user"
+    assert (parsed_off.get("thought") or "").strip() == "仅正文"
+    plain_no_r = agent._assistant_message_plain_text(msg, include_reasoning=False)
+    plain_with_r = agent._assistant_message_plain_text(msg, include_reasoning=True)
+    assert "内部推理" not in plain_no_r
+    assert "内部推理" in plain_with_r
 
 
 def test_parse_llm_response_chinese_action_labels() -> None:

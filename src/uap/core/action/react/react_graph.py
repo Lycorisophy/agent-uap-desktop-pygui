@@ -56,6 +56,7 @@ class _ReactState(TypedDict, total=False):
     pending_native: AIMessage | None
     pending_text: dict[str, Any] | None
     current_step_id: int
+    last_llm_plain: str | None
 
 
 def _tool_call_to_name_args(tc0: Any) -> tuple[str, dict[str, Any]]:
@@ -284,18 +285,22 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
                 "current_step_id": step_id,
             }
 
-        parsed = agent._parse_llm_response(resp)
+        inc_r = bool(isinstance(extra_ctx, dict) and extra_ctx.get("deep_search_cot_mode"))
+        parsed = agent._parse_llm_response(
+            resp, include_reasoning_in_plain=inc_r
+        )
         thought = parsed.get("thought", "") or ""
         action = (parsed.get("action") or "").strip()
         action_input = parsed.get("action_input") or {}
 
         # 空 action 不得视为成功结束（否则未产出有效决策也会标记 success）
         if action == "FINAL_ANSWER" or parsed.get("final_answer") is not None:
+            obs_text = agent.final_answer_observation(parsed, resp)
             fin = ReactStep(
                 step_id=step_id,
                 thought=thought,
                 action="FINAL_ANSWER",
-                observation="任务完成",
+                observation=obs_text,
                 duration_ms=0,
             )
             return {
@@ -329,11 +334,13 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         if parsed.get("needs_confirmation"):
             _LOG.info("[react_graph] needs_confirmation (text path) step=%d", step_id)
 
+        plain = agent._assistant_message_plain_text(resp, include_reasoning=True) or ""
         return {
             "llm_rounds": rounds,
             "pending_native": None,
             "pending_text": parsed,
             "current_step_id": step_id,
+            "last_llm_plain": plain,
         }
 
     def route_after_decide(state: _ReactState) -> Any:
@@ -351,6 +358,7 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
 
         pending_native = state.get("pending_native")
         pending_text = state.get("pending_text")
+        extra_act = state.get("extra_context") or {}
 
         thought = ""
         action = ""
@@ -360,10 +368,16 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         err_msg: str | None = None
 
         if pending_native is not None and isinstance(pending_native, AIMessage):
-            thought = (agent._assistant_message_plain_text(pending_native) or "").strip()[
-                :5000
-            ]
-            if not thought:
+            inc_r = bool(
+                isinstance(extra_act, dict) and extra_act.get("deep_search_cot_mode")
+            )
+            thought = (
+                agent._assistant_message_plain_text(
+                    pending_native, include_reasoning=inc_r
+                )
+                or ""
+            ).strip()[:5000]
+            if not thought and inc_r:
                 ak = getattr(pending_native, "additional_kwargs", None) or {}
                 if isinstance(ak, dict):
                     for key in ("reasoning_content", "reasoning", "thinking"):
@@ -399,7 +413,6 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         else:
             return {"pending_native": None, "pending_text": None}
 
-        extra_act = state.get("extra_context") or {}
         ip_a = get_interrupt_pair_from_context(
             extra_act if isinstance(extra_act, dict) else None
         )
@@ -413,11 +426,17 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
             }
 
         if action == "FINAL_ANSWER" or not action:
+            last_plain = state.get("last_llm_plain")
+            plain_arg: str | None = last_plain if isinstance(last_plain, str) else None
+            obs_text = agent.final_answer_observation(
+                pending_text if isinstance(pending_text, dict) else {},
+                plain_arg,
+            )
             fin = ReactStep(
                 step_id=step_id,
                 thought=thought,
                 action="FINAL_ANSWER",
-                observation="任务完成",
+                observation=obs_text,
                 duration_ms=int((time.perf_counter() - step_start) * 1000),
             )
             return {

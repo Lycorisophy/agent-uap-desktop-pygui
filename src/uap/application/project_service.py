@@ -971,6 +971,11 @@ class ProjectService:
                 context["_interrupt"] = interrupt_handles
             if deep_search_cot_mode:
                 context["deep_search_cot_mode"] = True
+            _LOG.info(
+                "[Modeling] deep_search_cot_mode=%s (context flag=%s)",
+                bool(deep_search_cot_mode),
+                bool(context.get("deep_search_cot_mode")),
+            )
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"
@@ -1331,17 +1336,28 @@ class ProjectService:
             self._append_last_ask_user_excerpt(result, parts)
             return "\n\n".join(parts)
 
-        if result.success and model:
-            parts: list[str] = []
-            if model.variables:
-                parts.append(f"已识别 {len(model.variables)} 个变量")
-            if model.relations:
-                parts.append(f"发现 {len(model.relations)} 个关系")
-            if model.constraints:
-                parts.append(f"已记录 {len(model.constraints)} 条约束")
-            if parts:
-                return "建模进度：" + "，".join(parts) + "。"
         if result.success:
+            fo = getattr(result, "final_output", None)
+            human = (
+                isinstance(fo, str)
+                and fo.strip()
+                and fo.strip() != "任务完成"
+            )
+            model_parts: list[str] = []
+            if model:
+                if model.variables:
+                    model_parts.append(f"已识别 {len(model.variables)} 个变量")
+                if model.relations:
+                    model_parts.append(f"发现 {len(model.relations)} 个关系")
+                if model.constraints:
+                    model_parts.append(f"已记录 {len(model.constraints)} 条约束")
+            if human:
+                base = str(fo).strip()
+                if model_parts:
+                    return base + "\n\n" + "建模进度：" + "，".join(model_parts) + "。"
+                return base
+            if model_parts:
+                return "建模进度：" + "，".join(model_parts) + "。"
             return (
                 "本轮推理已结束，但尚未沉淀出可保存的结构化变量、关系或约束。"
                 "若需继续建模，请补充：预测对象、时间范围、数据文件/接口或上传文档。"
