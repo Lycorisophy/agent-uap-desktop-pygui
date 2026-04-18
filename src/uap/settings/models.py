@@ -237,6 +237,18 @@ class AgentConfig(BaseModel):
         le=900,
         description="建模追问卡片（ASK_USER）过期时间（秒），超时视为拒绝并仅写会话、不调 LLM",
     )
+    web_search_enabled: bool = Field(
+        default=True,
+        description="为建模 ReAct/Plan 注册网络搜索技能 web_search",
+    )
+    web_search_provider: Literal["duckduckgo", "tavily", "mock"] = Field(
+        default="duckduckgo",
+        description="duckduckgo：免费网页检索；tavily：需填写 tavily_api_key；mock：离线占位",
+    )
+    tavily_api_key: str = Field(
+        default="",
+        description="Tavily Search API Key（web_search_provider=tavily 时使用）",
+    )
 
 
 class ContextCompressionConfig(BaseModel):

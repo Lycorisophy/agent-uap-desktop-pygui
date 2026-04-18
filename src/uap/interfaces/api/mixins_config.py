@@ -21,6 +21,9 @@ def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
         llm["api_key"] = f"<redacted len={len(str(raw))}>"
     agent = out.get("agent")
     if isinstance(agent, dict):
+        if agent.get("tavily_api_key"):
+            raw = agent["tavily_api_key"]
+            agent["tavily_api_key"] = f"<redacted len={len(str(raw))}>"
         cl = agent.get("modeling_classifier_llm")
         if isinstance(cl, dict) and cl.get("api_key"):
             raw = cl["api_key"]
@@ -33,8 +36,11 @@ def _redact_config_updates_for_log(updates: dict[str, Any]) -> dict[str, Any]:
 
 
 def _agent_payload_for_api(cfg) -> dict[str, Any]:
-    """agent 子配置：分类用 LLM 的 api_key 不落盘到前端。"""
+    """agent 子配置：分类用 LLM 的 api_key、Tavily Key 不落盘到前端明文。"""
     ag = cfg.agent.model_dump(mode="json")
+    if "tavily_api_key" in ag:
+        ag["tavily_api_key"] = ""
+        ag["tavily_api_key_set"] = bool((cfg.agent.tavily_api_key or "").strip())
     cl = ag.get("modeling_classifier_llm")
     if cl is None:
         ag["modeling_classifier_llm"] = None
@@ -147,6 +153,7 @@ class ConfigApiMixin:
                 from uap.config import AgentConfig, LLMConfig
 
                 ag = dict(config_updates["agent"])
+                ag.pop("tavily_api_key_set", None)
                 merged_ag = self.config.agent.model_dump(mode="json")
                 for k, v in ag.items():
                     if k == "modeling_classifier_llm":
@@ -164,6 +171,8 @@ class ConfigApiMixin:
                             merged_ag["modeling_classifier_llm"] = LLMConfig.model_validate(
                                 cl_base
                             )
+                    elif k == "tavily_api_key" and (v is None or v == ""):
+                        continue
                     elif v is not None:
                         merged_ag[k] = v
                 self.config.agent = AgentConfig.model_validate(merged_ag)

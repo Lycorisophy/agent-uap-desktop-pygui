@@ -390,8 +390,13 @@ class ProjectsApiMixin:
         return self._modeling_stream_hub.poll(str(stream_id).strip())
 
     def _get_web_search_func(self):
-        """获取Web搜索函数"""
-        return None
+        """获取 Web 搜索函数（DuckDuckGo / Tavily / mock，见 ``AgentConfig``）。"""
+        ag = self.config.agent
+        if not getattr(ag, "web_search_enabled", True):
+            return None
+        from uap.adapters.search import make_web_search_callable
+
+        return make_web_search_callable(ag)
 
     def import_model_from_document(
         self,

@@ -26,6 +26,7 @@ dependencies = [
     "setuptools>=81.0.0",
     # 本地文件 URI 依赖 milvus-lite；Windows 无官方 win 轮子，见 milvus_project_kb._milvus_lite_import_ok
     "pymilvus[milvus_lite]>=2.4.0",
+    "duckduckgo-search>=6.0.0",
 ]
 
 [project.optional-dependencies]

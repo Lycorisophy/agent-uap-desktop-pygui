@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from uap.skill.atomic_skills import AtomicSkill, SkillMetadata, SkillCategory, SkillComplexity
+from uap.adapters.search import run_web_search
+from uap.skill.atomic_skills import AtomicSkill, SkillCategory, SkillComplexity, SkillMetadata
 
 _LOG = logging.getLogger("uap.core.action.react.web_search")
 
@@ -115,16 +116,8 @@ class WebSearchSkill(AtomicSkill):
             }
 
     def _default_search(self, query: str, num_results: int) -> list[dict]:
-        """默认搜索实现"""
-        # 可以使用bing搜索或其他API
-        # 这里返回模拟结果作为示例
-        return [
-            {
-                "title": f"关于{query}的相关资料",
-                "url": f"https://example.com/search?q={query}",
-                "snippet": f"这是关于{query}的搜索结果摘要..."
-            }
-        ]
+        """默认：DuckDuckGo 文本检索（无 API Key）。注入 ``search_func`` 时不会调用本方法。"""
+        return run_web_search(query, num_results, provider="duckduckgo", tavily_api_key="")
 
     def _format_results(self, raw_results: list) -> list[dict]:
         """格式化搜索结果"""

@@ -9,7 +9,7 @@
 | 应用层 | `uap.interfaces`（桌面/API）、`uap.delivery`（对外门面转发） | PyWebView 暴露、HTTP 边界、薄编排；不实现领域算法 |
 | 核心服务层 | `uap.core.*` | 行动模式、技能、记忆 RAG、提示词、上下文、约束/DST；可依赖 contract、persistence、adapters |
 | 数据访问层 | `uap.persistence` | 项目目录、JSON/SQLite 等落盘；禁止依赖 `interfaces` |
-| 防腐层 | `uap.adapters.*` | 第三方 HTTP/SDK（LLM、向量客户端等）；对外部形状做适配 |
+| 防腐层 | `uap.adapters.*` | 第三方 HTTP/SDK（LLM、向量客户端、`adapters.search` 网络检索等）；对外部形状做适配 |
 | 公共实体 | `uap.contract` | 领域模型与 API 形状约定（见下节）；无 I/O |
 | 公共工具 | `uap.common` | 无业务状态的工具函数 |
 | 配置 | `uap.settings`（`uap.config` 为兼容入口） | Pydantic 配置模型与加载 |
@@ -48,4 +48,5 @@ contract               →  （仅标准库 / pydantic，不依赖 adapters）
 | 技能系统 | `uap.core.skills` | `uap.skill` |
 | ReAct / Plan / LangGraph | `uap.core.action.react`、`uap.core.action.plan` | `uap.react`、`uap.plan` |
 | LLM 客户端 | `uap.adapters.llm` | `uap.infrastructure.llm`、`uap.llm` |
+| 网络搜索 | `uap.adapters.search`（DuckDuckGo / Tavily） | 由 `WebSearchSkill` 与 `AgentConfig` 使用 |
 | 项目存储 | `uap.persistence` | `uap.infrastructure.persistence`、`uap.project.project_store` |
