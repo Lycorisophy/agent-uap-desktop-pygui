@@ -215,6 +215,10 @@ class AgentConfig(BaseModel):
         default=True,
         description="为建模 ReAct/Plan 注册 win11_* 项目内文件读写删改移技能",
     )
+    modeling_win_cli_skills_enabled: bool = Field(
+        default=True,
+        description="为建模 ReAct/Plan 注册 Windows 受限 CLI/PowerShell 四工具（仅 win32）",
+    )
     react_max_ask_user_per_turn: int = Field(
         default=1,
         ge=1,

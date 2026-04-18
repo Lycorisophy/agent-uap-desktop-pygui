@@ -784,11 +784,28 @@ class ReactAgent:
             result = skill.execute(**params)
 
             if isinstance(result, dict):
-                if result.get("error"):
-                    return str(result["error"]), True, result["error"]
-                obs = result.get("observation", "") or result.get("result", "") or str(result)
-            else:
-                obs = str(result)
+                err_val = result.get("error")
+                obs = result.get("observation", "") or result.get("result", "")
+                is_err = bool(result.get("is_error"))
+                err_msg = result.get("error_message")
+                if err_val and not obs:
+                    return str(err_val), True, str(err_val)
+                if not isinstance(obs, str):
+                    obs = str(obs)
+                if is_err or err_val:
+                    _LOG.info(
+                        "[ReActAgent] Skill %s finished with error flag, result_len=%d",
+                        skill_id,
+                        len(obs),
+                    )
+                    return obs, True, str(err_msg or err_val or "tool_error")
+                _LOG.info(
+                    "[ReActAgent] Skill %s executed successfully, result_len=%d",
+                    skill_id,
+                    len(obs),
+                )
+                return obs, False, None
+            obs = str(result)
 
             _LOG.info(
                 "[ReActAgent] Skill %s executed successfully, result_len=%d",

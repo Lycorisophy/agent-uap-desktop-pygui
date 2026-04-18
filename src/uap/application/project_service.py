@@ -16,6 +16,7 @@ ProjectService —— **领域编排层**（介于 Harness ``UAPApi`` 与存储 
 from __future__ import annotations
 
 import logging
+import sys
 import uuid
 from datetime import datetime, timezone
 from collections.abc import Callable
@@ -733,6 +734,13 @@ class ProjectService:
 
             skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
 
+        if getattr(self._cfg.agent, "modeling_win_cli_skills_enabled", True) and sys.platform.startswith(
+            "win"
+        ):
+            from uap.react.win_cli_skills import create_win_cli_skill_bundle
+
+            skills_registry.update(create_win_cli_skill_bundle(str(proj_dir)))
+
         if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
             skills_registry["search_knowledge"] = create_search_knowledge_skill(
                 project_id, self._knowledge
@@ -863,6 +871,13 @@ class ProjectService:
             from uap.react.win11_project_fs_skills import create_win11_project_fs_skill_bundle
 
             skills_registry.update(create_win11_project_fs_skill_bundle(str(proj_dir)))
+
+        if getattr(self._cfg.agent, "modeling_win_cli_skills_enabled", True) and sys.platform.startswith(
+            "win"
+        ):
+            from uap.react.win_cli_skills import create_win_cli_skill_bundle
+
+            skills_registry.update(create_win_cli_skill_bundle(str(proj_dir)))
 
         if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
             skills_registry["search_knowledge"] = create_search_knowledge_skill(

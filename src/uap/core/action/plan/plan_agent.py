@@ -390,11 +390,18 @@ class PlanAgent:
                 return f"参数验证失败: {', '.join(errors)}", True, "; ".join(errors)
             result = skill.execute(**params)
             if isinstance(result, dict):
-                if result.get("error"):
-                    return str(result["error"]), True, str(result["error"])
-                obs = result.get("observation", "") or result.get("result", "") or str(result)
-            else:
-                obs = str(result)
+                err_val = result.get("error")
+                obs = result.get("observation", "") or result.get("result", "")
+                is_err = bool(result.get("is_error"))
+                err_msg = result.get("error_message")
+                if err_val and not obs:
+                    return str(err_val), True, str(err_val)
+                if not isinstance(obs, str):
+                    obs = str(obs)
+                if is_err or err_val:
+                    return obs, True, str(err_msg or err_val or "tool_error")
+                return obs, False, None
+            obs = str(result)
             return obs, False, None
         except Exception as e:
             _LOG.exception("[PlanAgent] Skill %s failed", skill_id)

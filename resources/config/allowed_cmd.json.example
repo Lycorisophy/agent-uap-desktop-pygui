@@ -1,0 +1,7 @@
+{
+  "allowed": [
+    "dir /b",
+    "where python",
+    "ver"
+  ]
+}

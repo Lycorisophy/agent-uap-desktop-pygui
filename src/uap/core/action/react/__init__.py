@@ -42,6 +42,7 @@ from uap.core.action.react.win11_project_fs_skills import (
     create_win11_project_fs_skill_bundle,
     resolve_project_path,
 )
+from uap.core.action.react.win_cli_skills import create_win_cli_skill_bundle
 from uap.core.action.react.card_integration import ReactCardIntegration
 
 
@@ -111,6 +112,8 @@ __all__ = [
     # Project workspace FS (win11_*)
     "create_win11_project_fs_skill_bundle",
     "resolve_project_path",
+    # Windows CLI (run_safe_* / run_allowed_*)
+    "create_win_cli_skill_bundle",
     # HITL
     "ReactCardIntegration",
     # Factory

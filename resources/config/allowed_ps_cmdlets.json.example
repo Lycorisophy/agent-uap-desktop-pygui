@@ -1,0 +1,8 @@
+{
+  "allowed": [
+    "Get-ChildItem",
+    "Select-Object",
+    "New-Item",
+    "Remove-Item"
+  ]
+}
