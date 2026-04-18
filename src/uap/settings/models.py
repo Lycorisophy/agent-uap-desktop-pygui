@@ -202,7 +202,10 @@ class AgentConfig(BaseModel):
         default=2,
         ge=0,
         le=20,
-        description="意图/场景分类带入的对话轮数：当前用户句 + 向前最多 N 组 user→assistant；0 关闭 LLM 分类",
+        description=(
+            "意图/场景分类带入的对话轮数：当前用户句 + 向前最多 N 组 user→assistant；"
+            "0 表示分类提示中**不拼多轮历史**（仅当前用户句），仍会执行意图/场景 LLM 分类"
+        ),
     )
     modeling_classifier_llm: Optional[LLMConfig] = Field(
         default=None,

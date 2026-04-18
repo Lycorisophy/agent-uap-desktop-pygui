@@ -83,6 +83,38 @@ def test_build_llm_user_content_includes_harness_hints() -> None:
     assert "当前决策轮次" in out and "3" in out
 
 
+def test_build_llm_user_content_includes_modeling_mode_suffix() -> None:
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    sid = str(uuid.uuid4())
+    sess = dst.create_session(sid, "task text", {"project_id": "p1"})
+    out = agent.build_llm_user_content(
+        "task text",
+        {
+            "project_id": "p1",
+            "modeling_mode_requested": "auto",
+            "modeling_mode_used": "react",
+        },
+        sess,
+        [],
+        session_id=sid,
+        llm_round=1,
+        step_id=1,
+    )
+    assert "用户请求模式" in out and "auto" in out
+    assert "本轮实际执行模式" in out and "react" in out
+
+
 def test_parse_llm_response_list_content_blocks() -> None:
     """与流式聚合一致：content 为块列表时须解析出 Action（勿依赖 str(list)）。"""
     m = MagicMock(spec=BaseChatModel)

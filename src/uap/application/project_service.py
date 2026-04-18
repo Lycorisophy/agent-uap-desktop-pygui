@@ -955,6 +955,9 @@ class ProjectService:
             original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
             on_llm_token: 可选；ReAct ``decide`` 中 LLM 流式输出时按文本片段回调（用于前端轮询拉流）。
             deep_search_cot_mode: 为真时注入 ``context["deep_search_cot_mode"]``，启用更深检索与显式思维链提示。
+
+        解析模式后会在 ``context`` 中写入 ``modeling_mode_requested``（``react``/``plan``/``auto``）
+        与 ``modeling_mode_used``（本轮实际 ``react`` 或 ``plan``），供 ReAct/Plan 主提示与意图分类使用。
         """
         try:
             project = self._store.get_project(project_id)
@@ -991,6 +994,9 @@ class ProjectService:
                 mode_requested,
                 mode_used,
             )
+
+            context["modeling_mode_requested"] = mode_requested
+            context["modeling_mode_used"] = mode_used
 
             if mode_used == "plan":
                 out = self._run_plan_modeling(

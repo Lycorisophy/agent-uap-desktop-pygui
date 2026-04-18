@@ -41,6 +41,9 @@ def test_react_mode_calls_run_react(svc):
         out = svc.react_modeling("pid", "hello", mode="react")
     m_r.assert_called_once()
     m_p.assert_not_called()
+    ctx = m_r.call_args[0][4]
+    assert ctx["modeling_mode_requested"] == "react"
+    assert ctx["modeling_mode_used"] == "react"
     assert out["mode_requested"] == "react"
     assert out["mode_used"] == "react"
 
@@ -62,6 +65,9 @@ def test_plan_mode_calls_run_plan(svc):
         out = svc.react_modeling("pid", "hello", mode="plan")
     m_p.assert_called_once()
     m_r.assert_not_called()
+    ctx = m_p.call_args[0][4]
+    assert ctx["modeling_mode_requested"] == "plan"
+    assert ctx["modeling_mode_used"] == "plan"
     assert out["mode_used"] == "plan"
 
 
@@ -76,12 +82,15 @@ def test_auto_uses_decide(svc):
 
     with mock.patch.object(svc, "_decide_mode_by_task", return_value="plan") as m_d, mock.patch.object(
         svc, "_run_plan_modeling", return_value={"ok": True}
-    ), mock.patch.object(svc, "_run_react_modeling"), mock.patch(
+    ) as m_p, mock.patch.object(svc, "_run_react_modeling"), mock.patch(
         "uap.application.project_service.create_langchain_chat_model",
         return_value=llm,
     ):
         out = svc.react_modeling("pid", "task", mode="auto")
     m_d.assert_called_once()
+    ctx = m_p.call_args[0][4]
+    assert ctx["modeling_mode_requested"] == "auto"
+    assert ctx["modeling_mode_used"] == "plan"
     assert out["mode_requested"] == "auto"
     assert out["mode_used"] == "plan"
 

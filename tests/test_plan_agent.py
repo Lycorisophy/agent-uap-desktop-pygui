@@ -7,6 +7,22 @@ from uap.prompts import PromptId, render
 from uap.react.dst_manager import DstManager
 
 
+def test_intent_scene_block_includes_modeling_modes() -> None:
+    from uap.plan.plan_agent import _intent_scene_block
+
+    text = _intent_scene_block(
+        {
+            "modeling_mode_requested": "auto",
+            "modeling_mode_used": "plan",
+            "classified_intent": "analysis",
+            "classified_scene": "测试",
+        }
+    )
+    assert "auto" in text
+    assert "plan" in text
+    assert "analysis" in text
+
+
 def test_plan_generation_prompt_renders() -> None:
     text = render(
         PromptId.PLAN_GENERATION_USER,

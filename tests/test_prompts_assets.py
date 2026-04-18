@@ -14,6 +14,16 @@ def test_all_prompt_assets_load() -> None:
         assert len(text.strip()) > 0
 
 
+def test_render_modeling_intent_classify_includes_mode_hint() -> None:
+    text = render(
+        PromptId.MODELING_INTENT_CLASSIFY_USER,
+        dialogue="[用户] 测试",
+        execution_mode_hint="（模式说明占位）",
+    )
+    assert "（模式说明占位）" in text
+    assert "[用户]" in text
+
+
 def test_render_react_decision_contains_parser_contract() -> None:
     text = render(
         PromptId.REACT_DECISION_USER,

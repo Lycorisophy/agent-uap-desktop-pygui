@@ -1,5 +1,5 @@
 """
-建模前意图 / 场景分类：基于最近 N 轮持久化对话，调用可配置（默认同主 LLM）的小模型一次。
+建模前意图 / 场景分类：按配置带入最近 N 轮（或仅当前句）持久化对话，调用可配置（默认同主 LLM）的分类模型。
 """
 
 from __future__ import annotations
@@ -50,6 +50,37 @@ def effective_classifier_llm(cfg: UapConfig) -> LLMConfig:
     patch = ov.model_dump(mode="json", exclude_none=True)
     base.update(patch)
     return LLMConfig.model_validate(base)
+
+
+def format_single_user_dialogue_line(current_user_message: str) -> str:
+    """仅当前用户句，供 ``rounds <= 0`` 时意图分类（仍走分类 LLM，但不带入多轮历史）。"""
+    text = (current_user_message or "").strip()
+    if len(text) > 8000:
+        text = text[:7999] + "…"
+    return f"[用户] {text}"
+
+
+def format_execution_mode_hint(mode_requested: str | None) -> str:
+    """注入分类提示词：说明用户在建模入口选择的执行模式。"""
+    if not mode_requested or not str(mode_requested).strip():
+        return "（系统未传入模式标签；按默认建模流程理解即可。）"
+    m = str(mode_requested).strip().lower()
+    if m == "react":
+        return (
+            "用户选择的是 **react**：本轮将按 **ReAct**（逐步 Thought→Action）执行。"
+            "请结合下方对话做意图与场景判断。"
+        )
+    if m == "plan":
+        return (
+            "用户选择的是 **plan**：本轮将按 **Plan**（先规划再执行）执行。"
+            "请结合下方对话做意图与场景判断。"
+        )
+    if m == "auto":
+        return (
+            "用户选择的是 **auto**：后续由系统在 **ReAct** 与 **Plan** 中自动择一执行；"
+            "分类只需知晓用户未强制指定单一路径，并结合对话判断意图与场景。"
+        )
+    return f"用户请求模式：**{m}**（请结合对话判断意图与场景）。"
 
 
 def format_messages_for_classifier(messages: list[dict], rounds: int) -> str:
@@ -156,7 +187,13 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-def classify_intent_scene(cfg: UapConfig, dialogue_text: str, current_user_line: str) -> dict[str, str]:
+def classify_intent_scene(
+    cfg: UapConfig,
+    dialogue_text: str,
+    current_user_line: str,
+    *,
+    mode_requested: str | None = None,
+) -> dict[str, str]:
     """
     调用分类模型，返回 ``classified_intent``、``classified_scene`` 键。
     解析失败时用关键词回退 intent，scene 为 ``general``。
@@ -168,7 +205,12 @@ def classify_intent_scene(cfg: UapConfig, dialogue_text: str, current_user_line:
     llm_cfg = effective_classifier_llm(cfg)
     try:
         model = create_langchain_chat_model(llm_cfg)
-        prompt = render(PromptId.MODELING_INTENT_CLASSIFY_USER, dialogue=dialogue_text)
+        hint = format_execution_mode_hint(mode_requested)
+        prompt = render(
+            PromptId.MODELING_INTENT_CLASSIFY_USER,
+            execution_mode_hint=hint,
+            dialogue=dialogue_text,
+        )
         resp = model.invoke([HumanMessage(content=prompt)])
         text = assistant_text_from_chat_response(resp)
         obj = _extract_json_object(str(text))
@@ -190,12 +232,25 @@ def run_modeling_intent_scene_if_enabled(
     cfg: UapConfig,
     messages: list[dict],
     current_user_message: str,
+    *,
+    mode_requested: str | None = None,
 ) -> dict[str, str]:
     """
-    若 ``modeling_intent_context_rounds > 0`` 则跑分类；否则返回空 dict（由 DST 关键词负责 intent）。
+    每轮建模默认跑意图/场景分类 LLM。
+
+    ``modeling_intent_context_rounds`` 仅控制**带入分类提示的对话轮数**：
+    ``0`` 表示只将当前用户句格式化为对话片段（不拼多轮历史），**仍会调用分类**。
     """
     rounds = int(getattr(cfg.agent, "modeling_intent_context_rounds", 0) or 0)
     if rounds <= 0:
-        return {}
-    dialogue = format_messages_for_classifier(messages, rounds)
-    return classify_intent_scene(cfg, dialogue, current_user_message)
+        dialogue = format_single_user_dialogue_line(current_user_message)
+    else:
+        dialogue = format_messages_for_classifier(messages, rounds)
+        if not (dialogue or "").strip():
+            dialogue = format_single_user_dialogue_line(current_user_message)
+    return classify_intent_scene(
+        cfg,
+        dialogue,
+        current_user_message,
+        mode_requested=mode_requested,
+    )

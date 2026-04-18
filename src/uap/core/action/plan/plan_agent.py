@@ -29,9 +29,15 @@ def _intent_scene_block(extra: dict | None) -> str:
     ex = extra or {}
     ci = str(ex.get("classified_intent") or "").strip()
     cs = str(ex.get("classified_scene") or "").strip()
+    mr = str(ex.get("modeling_mode_requested") or "").strip()
+    mu = str(ex.get("modeling_mode_used") or "").strip()
     parts: list[str] = []
     if ex.get("deep_search_cot_mode"):
         parts.append("- 本轮建模模式: **深度搜索 + 显式思维链**（规划步骤说明须写清依据；执行中需要外部事实时多用 web_search）")
+    if mr:
+        parts.append(f"- 用户请求模式: {mr}（react / plan / auto）")
+    if mu:
+        parts.append(f"- 本轮实际执行模式: {mu}（react 或 plan）")
     if ci:
         parts.append(f"- 意图分类: {ci}")
     if cs:

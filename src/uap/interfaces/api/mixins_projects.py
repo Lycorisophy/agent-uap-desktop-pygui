@@ -166,13 +166,17 @@ class ProjectsApiMixin:
         失败时 ``ok: false``，仅保证 ``message`` 等错误信息可读。
         """
         messages = self.project_store.load_messages(project_id)
-        intent_scene = run_modeling_intent_scene_if_enabled(
-            self.config, messages, user_message_raw
-        )
 
         effective_mode = mode
         if effective_mode is None or not str(effective_mode).strip():
             effective_mode = self.config.agent.modeling_agent_mode or "react"
+
+        intent_scene = run_modeling_intent_scene_if_enabled(
+            self.config,
+            messages,
+            user_message_raw,
+            mode_requested=str(effective_mode).strip().lower(),
+        )
 
         prior = messages[:-1] if len(messages) > 1 else []
         task_for_agent = build_modeling_task_with_prior_dialogue(prior, user_message_raw)

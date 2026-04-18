@@ -341,8 +341,29 @@ class ReactAgent:
         return (
             body
             + self._react_harness_instructions(llm_round)
+            + self._modeling_mode_harness_suffix(extra_context)
             + self._deep_search_cot_harness_suffix(extra_context)
         )
+
+    def _modeling_mode_harness_suffix(self, extra_context: dict | None) -> str:
+        """在建模入口解析出的模式，附在编排说明后供模型对齐预期。"""
+        if not extra_context:
+            return ""
+        req = str(extra_context.get("modeling_mode_requested") or "").strip().lower()
+        used = str(extra_context.get("modeling_mode_used") or "").strip().lower()
+        if not req and not used:
+            return ""
+        lines: list[str] = []
+        if req:
+            lines.append(
+                f"- **用户请求模式**：`{req}`（`react` / `plan` / `auto`；"
+                "`auto` 表示由系统在 ReAct 与 Plan 中择一）。"
+            )
+        if used:
+            lines.append(
+                f"- **本轮实际执行模式**：`{used}`（本轮图以 ReAct 或 Plan 之一运行）。"
+            )
+        return "\n" + "\n".join(lines) + "\n"
 
     def _deep_search_cot_harness_suffix(self, extra_context: dict | None) -> str:
         """用户开启「深度搜索 + 思维链」时附在编排说明后。"""
