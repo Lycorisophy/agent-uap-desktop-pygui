@@ -10,6 +10,4 @@ mysql-connector-python>=8.0
 redis>=5.0
 elasticsearch>=8.0
 pymilvus>=2.3
-neo4j>=5.0
-pymongo>=4.0
 minio>=7.0

@@ -93,10 +93,6 @@ class StorageConfig(BaseModel):
     milvus_port: int = 19530
     milvus_collection_prefix: str = "uap"
 
-    neo4j_uri: str = "bolt://localhost:7687"
-    neo4j_user: str = "neo4j"
-    neo4j_password: str = ""
-
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"

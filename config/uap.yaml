@@ -53,11 +53,7 @@ storage:
     host: "localhost"
     port: 19530
     collection_prefix: "uap"
-  # Neo4j
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: ""
+  # 图结构：entity_graph.json；向量：Milvus（见上）
   # MinIO
   minio:
     endpoint: "localhost:9000"

@@ -59,11 +59,7 @@ storage:
     backend: "lite"
     use_tls: false
     token: ""
-  # Neo4j
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: ""
+  # 图结构/关系：项目目录内 entity_graph.json（由 SystemModel 投影）；不依赖独立图数据库。
   # MinIO
   minio:
     endpoint: "localhost:9000"
