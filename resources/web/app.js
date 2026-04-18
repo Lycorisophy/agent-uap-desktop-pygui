@@ -1762,6 +1762,43 @@ function runTypewriterEffect(textDiv, fullText, scrollParent) {
     });
 }
 
+function uapMarkdownAvailable() {
+    return (
+        typeof window.UAPMarkdown !== 'undefined' &&
+        typeof window.UAPMarkdown.renderMarkdownToSafeHtml === 'function'
+    );
+}
+
+/**
+ * 打字机结束后将正文渲染为 Markdown；开启「减少动态效果」时直接渲染。
+ */
+async function runTypewriterEffectThenMarkdown(textDiv, fullText, scrollParent) {
+    const full = fullText == null ? '' : String(fullText);
+    if (!textDiv) return;
+
+    if (!uapMarkdownAvailable()) {
+        await runTypewriterEffect(textDiv, full, scrollParent);
+        return;
+    }
+
+    if (uapPrefersReducedMotion()) {
+        textDiv.classList.add('md-body');
+        textDiv.innerHTML = window.UAPMarkdown.renderMarkdownToSafeHtml(full);
+        await window.UAPMarkdown.finalizeRichContent(textDiv);
+        const scrollEl =
+            scrollParent ||
+            (textDiv.closest && textDiv.closest('.chat-messages')) ||
+            textDiv.parentElement;
+        if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+        return;
+    }
+
+    await runTypewriterEffect(textDiv, full, scrollParent);
+    textDiv.classList.add('md-body');
+    textDiv.innerHTML = window.UAPMarkdown.renderMarkdownToSafeHtml(full);
+    await window.UAPMarkdown.finalizeRichContent(textDiv);
+}
+
 /**
  * 建模助手纯文本气泡 + 打字机（兼容旧调用）。
  */
@@ -1781,7 +1818,7 @@ function appendAssistantTypewriter(content, timestamp) {
     `;
     const textDiv = messageEl.querySelector('.message-text');
     container.appendChild(messageEl);
-    return runTypewriterEffect(textDiv, content, container);
+    return runTypewriterEffectThenMarkdown(textDiv, content, container);
 }
 
 function extractModelingSummaryText(fullMessage) {
@@ -2095,7 +2132,7 @@ async function appendModelingAssistantWithTrace(response) {
         console.error('[modeling] 侧栏刷新失败:', e);
     }
 
-    await runTypewriterEffect(target, summary, container);
+    await runTypewriterEffectThenMarkdown(target, summary, container);
     const inner = wrap.querySelector('.modeling-response-inner');
     if (
         inner &&
@@ -2557,10 +2594,19 @@ function appendChatMessage(message) {
         messageEl.innerHTML = `
             <div class="message-avatar">${roleIcon}</div>
             <div class="message-content">
-                <div class="message-text">${escapeHtml(message.content).replace(/\n/g, '<br>')}</div>
+                <div class="message-text"></div>
                 <div class="message-time">${formatTime(message.timestamp)}</div>
             </div>
         `;
+        const textEl = messageEl.querySelector('.message-text');
+        const raw = String(message.content != null ? message.content : '');
+        if (message.type === 'assistant' && uapMarkdownAvailable()) {
+            textEl.classList.add('md-body');
+            textEl.innerHTML = window.UAPMarkdown.renderMarkdownToSafeHtml(raw);
+            window.UAPMarkdown.finalizeRichContent(textEl).catch(() => {});
+        } else {
+            textEl.innerHTML = escapeHtml(raw).replace(/\n/g, '<br>');
+        }
     }
     
     container.appendChild(messageEl);

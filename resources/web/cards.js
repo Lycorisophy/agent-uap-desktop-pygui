@@ -85,9 +85,15 @@ class CardManagerUI {
         document.getElementById('cardIcon').textContent = cardData.icon || '📋';
         document.getElementById('cardTitle').textContent = cardData.title;
         
-        // 渲染内容（支持Markdown）
+        // 渲染内容（Markdown + 代码高亮 / Mermaid，见 uap_markdown.js）
         const contentEl = document.getElementById('cardContent');
-        contentEl.innerHTML = this.renderMarkdown(cardData.content);
+        contentEl.className = 'card-content md-body';
+        if (typeof window.UAPMarkdown !== 'undefined' && window.UAPMarkdown.renderMarkdownToSafeHtml) {
+            contentEl.innerHTML = window.UAPMarkdown.renderMarkdownToSafeHtml(cardData.content || '');
+            window.UAPMarkdown.finalizeRichContent(contentEl).catch(() => {});
+        } else {
+            contentEl.innerHTML = this.renderMarkdown(cardData.content);
+        }
 
         // 渲染选项
         const optionsEl = document.getElementById('cardOptions');
