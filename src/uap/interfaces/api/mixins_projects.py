@@ -149,6 +149,7 @@ class ProjectsApiMixin:
         mode: str | None,
         on_llm_token: Callable[[str], None] | None = None,
         modeling_stream_id: str | None = None,
+        deep_search_cot_mode: bool = False,
     ) -> dict:
         """
         在已将本轮用户消息写入 store 后执行意图分类与 ReAct/Plan，并持久化助手回复。
@@ -186,12 +187,13 @@ class ProjectsApiMixin:
             project_id=project_id,
             user_message=task_for_agent,
             card_manager=self.card_manager,
-            web_search_func=self._get_web_search_func(),
+            web_search_func=self._modeling_web_search_func(deep_search_cot_mode),
             mode=str(effective_mode).strip().lower(),
             intent_scene=intent_scene if intent_scene else None,
             original_user_message=user_message_raw,
             on_llm_token=on_llm_token,
             interrupt_handles=interrupt_handles,
+            deep_search_cot_mode=deep_search_cot_mode,
         )
         _LOG.info(
             "[API] modeling result: ok=%s, success=%s, mode_used=%s",
@@ -297,7 +299,13 @@ class ProjectsApiMixin:
         _LOG.warning("[API] modeling_chat failed: %s", error_msg)
         return {"ok": False, "message": error_msg}
 
-    def modeling_chat(self, project_id: str, message: str, mode: str | None = None) -> dict:
+    def modeling_chat(
+        self,
+        project_id: str,
+        message: str,
+        mode: str | None = None,
+        deep_search_cot_mode: bool = False,
+    ) -> dict:
         """
         建模对话（同步一次返回）。
 
@@ -329,13 +337,19 @@ class ProjectsApiMixin:
             )
             self.project_store.save_messages(project_id, messages)
 
-            return self._modeling_chat_core_body(project_id, message, mode, None)
+            return self._modeling_chat_core_body(
+                project_id, message, mode, None, deep_search_cot_mode=deep_search_cot_mode
+            )
         except Exception as e:
             _LOG.exception("[API] modeling_chat exception: %s", str(e))
             return {"ok": False, "message": str(e)}
 
     def start_modeling_chat_stream(
-        self, project_id: str, message: str, mode: str | None = None
+        self,
+        project_id: str,
+        message: str,
+        mode: str | None = None,
+        deep_search_cot_mode: bool = False,
     ) -> dict:
         """
         启动后台建模会话并立即返回 ``stream_id``。
@@ -378,7 +392,12 @@ class ProjectsApiMixin:
                     hub.append_token(stream_id, t)
 
                 out = api._modeling_chat_core_body(
-                    project_id, message, mode, cb, modeling_stream_id=stream_id
+                    project_id,
+                    message,
+                    mode,
+                    cb,
+                    modeling_stream_id=stream_id,
+                    deep_search_cot_mode=deep_search_cot_mode,
                 )
                 hub.finish(stream_id, out)
             except Exception as ex:
@@ -428,6 +447,34 @@ class ProjectsApiMixin:
         from uap.adapters.search import make_web_search_callable
 
         return make_web_search_callable(ag)
+
+    def _modeling_web_search_func(self, deep_search_cot_mode: bool):
+        """
+        建模会话用搜索：未开深度模式时用 ``make_web_search_callable``；
+        开启时提高 DuckDuckGo 条数、Tavily 使用 ``advanced`` 深度。
+        """
+        ag = self.config.agent
+        if not getattr(ag, "web_search_enabled", True):
+            return None
+        if not deep_search_cot_mode:
+            from uap.adapters.search import make_web_search_callable
+
+            return make_web_search_callable(ag)
+        from uap.adapters.search import run_web_search
+
+        def _fn(query: str, num_results: int = 5) -> list:
+            n = max(1, min(int(num_results) * 2, 25))
+            prov = (ag.web_search_provider or "duckduckgo").strip().lower()
+            td = "advanced" if prov == "tavily" else "basic"
+            return run_web_search(
+                query,
+                n,
+                provider=ag.web_search_provider,
+                tavily_api_key=ag.tavily_api_key or "",
+                tavily_search_depth=td,
+            )
+
+        return _fn
 
     def import_model_from_document(
         self,

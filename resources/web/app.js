@@ -155,6 +155,12 @@ function isModelingStreamInterruptApiAvailable() {
     );
 }
 
+/** 是否开启「深度搜索 + 思维链」（仅作用于本轮建模请求）。 */
+function getDeepSearchCotMode() {
+    const el = document.getElementById('deepSearchCotToggle');
+    return !!(el && el.checked);
+}
+
 function removeModelingStreamLiveBubbles() {
     document.querySelectorAll('.message.assistant.modeling-stream-live').forEach((el) => {
         el.remove();
@@ -2276,7 +2282,8 @@ async function sendModelingMessageRaw(projectId, message, mode) {
             const startResp = await window.pywebview.api.start_modeling_chat_stream(
                 projectId,
                 message,
-                mode
+                mode,
+                getDeepSearchCotMode()
             );
             if (!startResp || !startResp.ok || !startResp.stream_id) {
                 removeLoadingMessage(loadingId);
@@ -2326,7 +2333,12 @@ async function sendModelingMessageRaw(projectId, message, mode) {
             }
         } else {
             try {
-                response = await window.pywebview.api.modeling_chat(projectId, message, mode);
+                response = await window.pywebview.api.modeling_chat(
+                    projectId,
+                    message,
+                    mode,
+                    getDeepSearchCotMode()
+                );
             } finally {
                 removeLoadingMessage(loadingId);
             }
@@ -2391,7 +2403,8 @@ async function sendModelingMessage() {
                     startResp = await window.pywebview.api.start_modeling_chat_stream(
                         state.currentProject.id,
                         message,
-                        mode
+                        mode,
+                        getDeepSearchCotMode()
                     );
                 } catch (e) {
                     removeLoadingMessage(loadingId);
@@ -2469,7 +2482,8 @@ async function sendModelingMessage() {
                     response = await window.pywebview.api.modeling_chat(
                         state.currentProject.id,
                         message,
-                        mode
+                        mode,
+                        getDeepSearchCotMode()
                     );
                 } finally {
                     removeLoadingMessage(loadingId);

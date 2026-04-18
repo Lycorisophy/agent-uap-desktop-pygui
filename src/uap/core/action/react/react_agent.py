@@ -338,7 +338,21 @@ class ReactAgent:
             step_id=step_id,
             knowledge_ingest=ingest,
         )
-        return body + self._react_harness_instructions(llm_round)
+        return (
+            body
+            + self._react_harness_instructions(llm_round)
+            + self._deep_search_cot_harness_suffix(extra_context)
+        )
+
+    def _deep_search_cot_harness_suffix(self, extra_context: dict | None) -> str:
+        """用户开启「深度搜索 + 思维链」时附在编排说明后。"""
+        if not (extra_context and extra_context.get("deep_search_cot_mode")):
+            return ""
+        return (
+            "\n- **本轮用户已开启「深度搜索 + 显式思维链」**：需要外部事实时**积极、可多次**调用 "
+            "``web_search``；每条 **Thought** 请分步写出（背景/假设 → 检索或工具依据 → 结论与下一步），"
+            "避免一句话带过。\n"
+        )
 
     def _react_harness_instructions(self, llm_round: int) -> str:
         """编排层说明：与 LangGraph 停止条件对齐，附在压缩后的用户提示末尾。"""

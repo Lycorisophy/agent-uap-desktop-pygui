@@ -945,6 +945,7 @@ class ProjectService:
         original_user_message: str | None = None,
         on_llm_token: Optional[Callable[[str], None]] = None,
         interrupt_handles: dict | None = None,
+        deep_search_cot_mode: bool = False,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto``（自动在二者间选择）。
@@ -953,6 +954,7 @@ class ProjectService:
             mode: ``react`` | ``plan`` | ``auto``；为 ``None`` 或空时使用 ``UapConfig.agent.modeling_agent_mode``。
             original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
             on_llm_token: 可选；ReAct ``decide`` 中 LLM 流式输出时按文本片段回调（用于前端轮询拉流）。
+            deep_search_cot_mode: 为真时注入 ``context["deep_search_cot_mode"]``，启用更深检索与显式思维链提示。
         """
         try:
             project = self._store.get_project(project_id)
@@ -964,6 +966,8 @@ class ProjectService:
                 context["_on_llm_token"] = on_llm_token
             if interrupt_handles:
                 context["_interrupt"] = interrupt_handles
+            if deep_search_cot_mode:
+                context["deep_search_cot_mode"] = True
 
             raw = (mode if mode is not None else self._cfg.agent.modeling_agent_mode or "react")
             mode_requested = str(raw).strip().lower() or "react"

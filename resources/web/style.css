@@ -733,6 +733,22 @@ select {
     background: var(--card-bg, #fff);
 }
 
+.deep-search-cot-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--text-secondary, #555);
+}
+
+.deep-search-cot-label input {
+    margin: 0;
+    cursor: pointer;
+}
+
 .modeling-new-chat-btn {
     margin-left: auto;
     white-space: nowrap;

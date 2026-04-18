@@ -29,13 +29,15 @@ def _intent_scene_block(extra: dict | None) -> str:
     ex = extra or {}
     ci = str(ex.get("classified_intent") or "").strip()
     cs = str(ex.get("classified_scene") or "").strip()
-    if not ci and not cs:
-        return "（未启用前置分类或未提供）"
     parts: list[str] = []
+    if ex.get("deep_search_cot_mode"):
+        parts.append("- 本轮建模模式: **深度搜索 + 显式思维链**（规划步骤说明须写清依据；执行中需要外部事实时多用 web_search）")
     if ci:
         parts.append(f"- 意图分类: {ci}")
     if cs:
         parts.append(f"- 场景: {cs}")
+    if not parts:
+        return "（未启用前置分类或未提供）"
     return "\n".join(parts)
 
 

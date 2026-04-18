@@ -58,7 +58,13 @@ def search_duckduckgo(query: str, max_results: int) -> list[dict[str, Any]]:
     return out
 
 
-def search_tavily(query: str, max_results: int, api_key: str) -> list[dict[str, Any]]:
+def search_tavily(
+    query: str,
+    max_results: int,
+    api_key: str,
+    *,
+    search_depth: str = "basic",
+) -> list[dict[str, Any]]:
     """Tavily Search API：https://docs.tavily.com"""
     key = (api_key or "").strip()
     if not key:
@@ -68,6 +74,9 @@ def search_tavily(query: str, max_results: int, api_key: str) -> list[dict[str, 
         return []
 
     n = max(1, min(int(max_results), 20))
+    depth = (search_depth or "basic").strip().lower()
+    if depth not in ("basic", "advanced"):
+        depth = "basic"
     try:
         with httpx.Client(timeout=30.0) as client:
             r = client.post(
@@ -76,7 +85,7 @@ def search_tavily(query: str, max_results: int, api_key: str) -> list[dict[str, 
                     "api_key": key,
                     "query": q,
                     "max_results": n,
-                    "search_depth": "basic",
+                    "search_depth": depth,
                 },
             )
             r.raise_for_status()
@@ -104,9 +113,12 @@ def run_web_search(
     *,
     provider: str = "duckduckgo",
     tavily_api_key: str = "",
+    tavily_search_depth: str = "basic",
 ) -> list[dict[str, Any]]:
     """
     统一入口：按提供商执行搜索，返回 ``[{title, url, snippet}, ...]``。
+
+    ``tavily_search_depth``：仅 ``provider=tavily`` 时生效，``basic`` 或 ``advanced``。
     """
     prov = (provider or "duckduckgo").strip().lower()
     if prov == "mock":
@@ -116,7 +128,9 @@ def run_web_search(
         if not key:
             _LOG.warning("web_search_provider=tavily 但未配置 tavily_api_key，回退到 DuckDuckGo")
             return search_duckduckgo(query, num_results)
-        return search_tavily(query, num_results, key)
+        return search_tavily(
+            query, num_results, key, search_depth=tavily_search_depth or "basic"
+        )
     return search_duckduckgo(query, num_results)
 
 
