@@ -1,6 +1,6 @@
 # UAP - 复杂系统未来势态量化预测统一智能体
 
-> Unified Agent for Quantifying Future States of Complex Systems
+> Unified Agent for Prediction and Quantification of Future States of Complex Systems
 
 ## 项目介绍
 
