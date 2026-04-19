@@ -29,6 +29,11 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from uap.application.dst_pipeline import (
+    DstCompletionPolicy,
+    aggregate_should_mark_completed,
+    is_dst_state_slots_full,
+)
 from uap.skill.models import ActionNode, ActionType, SkillSession, SessionStatus
 
 _LOG = logging.getLogger("uap.dst")
@@ -111,6 +116,10 @@ class DstState(BaseModel):
     pending_confirmations: list[dict] = Field(default_factory=list)  # 待确认项
     confirmed_items: list[str] = Field(default_factory=list)        # 已确认项
 
+    # --- 模型确认卡（MODEL_CONFIRM）与 DST 流水线完成 ---
+    pending_model_confirm: bool = False  # 本轮已 defer 模型快照待用户确认
+    model_confirm_acknowledged: bool = False  # 用户已在确认卡上确认（或策略不要求卡）
+
     # --- 元数据 ---
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -185,6 +194,14 @@ class DstManager:
 
         self._sessions[session_id] = session
         self._dst_states[session_id] = dst_state
+
+        if pid:
+            agg = self._project_states.get(pid)
+            if agg is not None:
+                dst_state.model_confirm_acknowledged = (
+                    dst_state.model_confirm_acknowledged
+                    or agg.model_confirm_acknowledged
+                )
 
         _LOG.info(
             "[DstManager] Created session: %s, intent=%s scene=%s",
@@ -309,6 +326,10 @@ class DstManager:
         base.variable_confidence = max(base.variable_confidence, delta.variable_confidence)
         base.relation_confidence = max(base.relation_confidence, delta.relation_confidence)
         base.overall_confidence = max(base.overall_confidence, delta.overall_confidence)
+        base.pending_model_confirm = bool(delta.pending_model_confirm)
+        base.model_confirm_acknowledged = bool(base.model_confirm_acknowledged) or bool(
+            delta.model_confirm_acknowledged
+        )
         base.updated_at = datetime.now()
 
     def _update_stage(self, state: DstState, tool_name: str, metadata: dict) -> None:
@@ -376,11 +397,10 @@ class DstManager:
 
     def complete_session(self, session_id: str, final_output: Any = None) -> None:
         """
-        标记会话完成
+        标记 SkillSession 结束。
 
-        Args:
-            session_id: 会话ID
-            final_output: 最终输出
+        DST 是否进入 ``ModelingStage.COMPLETED`` **不**在此处理，而由
+        ``apply_pipeline_completion_after_modeling`` 根据槽位满与确认策略提升。
         """
         if session_id not in self._sessions:
             return
@@ -391,12 +411,93 @@ class DstManager:
 
         dst_state = self._dst_states.get(session_id)
         if dst_state:
-            dst_state.current_stage = ModelingStage.COMPLETED
             dst_state.updated_at = datetime.now()
             self._merge_dst_into_project_aggregate(dst_state)
 
-        _LOG.info("[DstManager] Session %s completed, final_stage=%s",
-                  session_id, dst_state.current_stage if dst_state else "unknown")
+        _LOG.info(
+            "[DstManager] Session %s skill finished, dst_stage=%s",
+            session_id,
+            dst_state.current_stage if dst_state else "unknown",
+        )
+
+    def seed_project_flags_from_store(
+        self, project_id: str, data: dict[str, Any] | None
+    ) -> None:
+        """从上次落盘的 ``dst_aggregate`` 恢复确认标志，供新会话继承。"""
+        pid = (project_id or "").strip()
+        if not pid or not isinstance(data, dict):
+            return
+        st = self._project_states.get(pid)
+        if st is None:
+            st = DstState(
+                session_id="_project_aggregate_",
+                project_id=pid,
+                current_stage=ModelingStage.INITIAL,
+            )
+            self._project_states[pid] = st
+        st.model_confirm_acknowledged = bool(
+            st.model_confirm_acknowledged or data.get("model_confirm_acknowledged")
+        )
+        st.pending_model_confirm = bool(data.get("pending_model_confirm"))
+
+    def apply_pipeline_completion_after_modeling(
+        self,
+        session_id: str,
+        project_id: str,
+        policy: DstCompletionPolicy,
+        defer_model_confirm: bool,
+    ) -> None:
+        """建模一轮结束后：记录是否挂起模型确认卡，并按策略尝试将 DST 标为流水线完成。"""
+        dst = self._dst_states.get(session_id)
+        if not dst:
+            return
+        dst.pending_model_confirm = bool(defer_model_confirm)
+        dst.updated_at = datetime.now()
+        self._try_promote_pipeline_completed(session_id, project_id, policy)
+
+    def _try_promote_pipeline_completed(
+        self,
+        session_id: str,
+        _project_id: str,
+        policy: DstCompletionPolicy,
+    ) -> None:
+        dst = self._dst_states.get(session_id)
+        if not dst:
+            return
+        if not is_dst_state_slots_full(dst, policy):
+            return
+        if policy.require_model_confirm_for_completed:
+            if dst.pending_model_confirm and not dst.model_confirm_acknowledged:
+                return
+        dst.current_stage = ModelingStage.COMPLETED
+        dst.updated_at = datetime.now()
+        self._merge_dst_into_project_aggregate(dst)
+
+    def patch_aggregate_dict_for_model_confirm_ack(
+        self, aggregate: dict[str, Any], policy: DstCompletionPolicy
+    ) -> dict[str, Any]:
+        """
+        用户已确认模型快照后更新可落盘 aggregate dict，并在内存 project aggregate 存在时同步。
+        """
+        if not isinstance(aggregate, dict):
+            return {}
+        out = dict(aggregate)
+        out["model_confirm_acknowledged"] = True
+        out["pending_model_confirm"] = False
+        if aggregate_should_mark_completed(out, policy):
+            out["current_stage"] = ModelingStage.COMPLETED.value
+            out["progress"] = 1.0
+        out["updated_at"] = datetime.now().isoformat()
+        pid = str(out.get("project_id") or "").strip()
+        if pid:
+            st = self._project_states.get(pid)
+            if st is not None:
+                st.model_confirm_acknowledged = True
+                st.pending_model_confirm = False
+                if out.get("current_stage") == ModelingStage.COMPLETED.value:
+                    st.current_stage = ModelingStage.COMPLETED
+                st.updated_at = datetime.now()
+        return out
 
     def export_project_aggregate_dict(self, project_id: str) -> dict[str, Any]:
         """导出 ``project_id`` 下跨会话合并后的 DST 摘要（可 JSON 落盘）。"""
@@ -414,6 +515,10 @@ class DstManager:
             "constraints_count": len(st.constraints),
             "progress": self._calculate_progress(st),
             "confidence": st.overall_confidence,
+            "pending_model_confirm": bool(getattr(st, "pending_model_confirm", False)),
+            "model_confirm_acknowledged": bool(
+                getattr(st, "model_confirm_acknowledged", False)
+            ),
             "updated_at": st.updated_at.isoformat() if st.updated_at else None,
         }
 
@@ -443,6 +548,8 @@ class DstManager:
             "progress": self._calculate_progress(dst_state),
             "confidence": dst_state.overall_confidence,
             "pending_confirmations": len(dst_state.pending_confirmations),
+            "pending_model_confirm": bool(dst_state.pending_model_confirm),
+            "model_confirm_acknowledged": bool(dst_state.model_confirm_acknowledged),
             "intent": intent,
             "scene": scene,
         }

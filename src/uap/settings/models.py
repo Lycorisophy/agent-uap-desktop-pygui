@@ -240,6 +240,25 @@ class AgentConfig(BaseModel):
         le=900,
         description="建模追问卡片（ASK_USER）过期时间（秒），超时视为拒绝并仅写会话、不调 LLM",
     )
+    dst_min_variables_for_full: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        description="DST「槽位满」所需最少变量条目数（与建模模型确认卡 defer 条件一致）",
+    )
+    dst_min_relations_for_full: int = Field(
+        default=1,
+        ge=0,
+        le=100,
+        description="DST「槽位满」所需最少关系条目数",
+    )
+    dst_require_model_confirm_for_completed: bool = Field(
+        default=True,
+        description=(
+            "为 True：本轮已挂起模型确认卡时，必须用户确认后才将 DST 标为流水线完成；"
+            "为 False：槽位满即可标完成（卡仍可展示但不阻塞 DST 完成态）"
+        ),
+    )
     web_search_enabled: bool = Field(
         default=True,
         description="为建模 ReAct/Plan 注册网络搜索技能 web_search",

@@ -38,7 +38,8 @@ from uap.project.models import (
     Relation,
 )
 from uap.application.dst_pipeline import (
-    is_modeling_dst_complete,
+    DstCompletionPolicy,
+    is_system_model_slots_full,
     pending_model_snap_key,
     pending_skill_draft_key,
 )
@@ -208,6 +209,25 @@ class ProjectService:
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
             self._save_system_model_file(project_id, model)
+
+            try:
+                from uap.core.action.react.dst_manager import DstManager
+
+                pol = DstCompletionPolicy.from_agent(self._cfg.agent)
+                agg: dict[str, Any] = dict(self._store.load_dst_aggregate(project_id) or {})
+                agg.setdefault("project_id", project_id)
+                if model.variables:
+                    agg["variables"] = [
+                        str(getattr(v, "name", "") or f"v{i}") for i, v in enumerate(model.variables)
+                    ]
+                if model.relations:
+                    agg["relations"] = [
+                        str(getattr(r, "name", "") or f"r{i}") for i, r in enumerate(model.relations)
+                    ]
+                patched = DstManager().patch_aggregate_dict_for_model_confirm_ack(agg, pol)
+                self._store.save_dst_aggregate(project_id, patched)
+            except OSError as e:
+                _LOG.warning("[ModelSnap] dst_aggregate after confirm: %s", e)
 
             out: dict[str, Any] = {"ok": True, "saved": True, "model_id": model.id}
             if snap.get("defer_skill_solidification") and snap.get("skill_session_dump"):
@@ -939,6 +959,9 @@ class ProjectService:
 
         _LOG.info("[Modeling/ReAct] project=%s msg=%s", project_id, user_message[:50])
         dst_manager = DstManager()
+        dst_manager.seed_project_flags_from_store(
+            project_id, self._store.load_dst_aggregate(project_id)
+        )
 
         proj_dir = Path(project.folder_path or project.workspace or "")
         if not str(proj_dir) or not proj_dir.is_dir():
@@ -1017,6 +1040,7 @@ class ProjectService:
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
         substantive = self._modeling_snapshot_substantive(model)
         business_success = self._business_modeling_success(result.success, substantive)
+        dst_policy = DstCompletionPolicy.from_agent(self._cfg.agent)
 
         pending_ask_user_card: dict | None = None
         if (
@@ -1042,7 +1066,10 @@ class ProjectService:
         pending_card: str | None = None
         pending_model_confirm_card: dict | None = None
         defer_model_confirm = bool(
-            model and card_integration and card_manager and is_modeling_dst_complete(model)
+            model
+            and card_integration
+            and card_manager
+            and is_system_model_slots_full(model, dst_policy)
         )
 
         session_obj = dst_manager.get_session(result.session_id)
@@ -1081,13 +1108,17 @@ class ProjectService:
             project = self._store.update_project(project)
             self._save_system_model_file(project_id, model)
 
+        dst_manager.apply_pipeline_completion_after_modeling(
+            result.session_id, project_id, dst_policy, defer_model_confirm
+        )
+
         out = {
             "ok": True,
             "message": self._generate_response_message(result, model),
             "model": model.model_dump() if model else None,
             "session_id": result.session_id,
             "steps": [s.model_dump() for s in result.steps],
-            "dst_state": result.dst_state,
+            "dst_state": dst_manager.get_session_state(result.session_id),
             "pending_card": pending_card,
             "pending_model_confirm_card": pending_model_confirm_card,
             "model_persist_deferred": bool(defer_model_confirm),
@@ -1138,6 +1169,9 @@ class ProjectService:
         _LOG.info("[Modeling/Plan] project=%s", project_id)
         sched = bool(context.get("scheduled_task_mode"))
         dst_manager = DstManager()
+        dst_manager.seed_project_flags_from_store(
+            project_id, self._store.load_dst_aggregate(project_id)
+        )
         skills_registry: dict = dict(build_modeling_atomic_registry())
         if web_search_func:
             skills_registry["web_search"] = create_web_search_skill(web_search_func)
@@ -1188,11 +1222,15 @@ class ProjectService:
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
         substantive = self._modeling_snapshot_substantive(model)
         business_success = self._business_modeling_success(result.success, substantive)
+        dst_policy = DstCompletionPolicy.from_agent(self._cfg.agent)
 
         pending_card: str | None = None
         pending_model_confirm_card: dict | None = None
         defer_model_confirm = bool(
-            model and card_integration and card_manager and is_modeling_dst_complete(model)
+            model
+            and card_integration
+            and card_manager
+            and is_system_model_slots_full(model, dst_policy)
         )
         session_obj = dst_manager.get_session(result.session_id)
         session_dump = session_obj.model_dump() if session_obj else None
@@ -1230,6 +1268,10 @@ class ProjectService:
             project = self._store.update_project(project)
             self._save_system_model_file(project_id, model)
 
+        dst_manager.apply_pipeline_completion_after_modeling(
+            result.session_id, project_id, dst_policy, defer_model_confirm
+        )
+
         plan_dump = [p.model_dump() for p in result.plan]
         react_shaped = [self._plan_step_to_react_step_dict(p) for p in result.plan]
         tool_calls = sum(
@@ -1245,7 +1287,7 @@ class ProjectService:
             "session_id": result.session_id,
             "steps": react_shaped,
             "plan": plan_dump,
-            "dst_state": result.dst_state,
+            "dst_state": dst_manager.get_session_state(result.session_id),
             "pending_card": pending_card,
             "pending_model_confirm_card": pending_model_confirm_card,
             "model_persist_deferred": bool(defer_model_confirm),

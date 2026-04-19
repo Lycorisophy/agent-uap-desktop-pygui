@@ -339,6 +339,33 @@ def test_react_graph_stream_list_content_blocks_parsed() -> None:
     assert r.steps[-1].action == "ask_user"
 
 
+def test_react_graph_stream_reasoning_only_blocks_parsed_without_deep_search() -> None:
+    """厂商仅把 ReAct 放在 reasoning 块、text 为空时，未开深度搜索仍须能解析，避免 empty_action。"""
+    inner = (
+        "Thought: t\n"
+        "Action: ask_user\n"
+        'Action Input: {"question": "Q", "options": []}\n'
+    )
+    pieces = [AIMessageChunk(content=[{"type": "reasoning", "text": inner}])]
+
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    m.stream = MagicMock(return_value=iter(pieces))
+
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=4,
+        max_time_seconds=60.0,
+        max_ask_user_per_turn=1,
+    )
+    r = agent.run("task", {"_on_llm_token": lambda _: None})
+    assert not any(s.error_message == "empty_action" for s in r.steps)
+    assert r.steps[-1].action == "ask_user"
+
+
 def test_parse_llm_response_multiline_thought() -> None:
     """多行 Thought 与全角冒号 Action：须完整保留思考文本。"""
     m = MagicMock(spec=BaseChatModel)

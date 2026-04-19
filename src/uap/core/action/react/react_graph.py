@@ -101,11 +101,20 @@ def _llm_chunks_to_message(chunks: list[AIMessageChunk]) -> AIMessage:
     须保留 ``content`` 为 ``str`` 或块 ``list``（含 ``type:text`` / reasoning），
     供 ``ReactAgent._assistant_message_plain_text`` 展平；**勿**对 list 使用 ``str()``，
     否则 ReAct 解析不到 ``Action:``（表现为 ``empty_action``）。
+
+    部分厂商在流式最后一帧才带上完整 ``tool_calls``，或 ``add_ai_message_chunks`` 合并结果
+    与单帧不一致时，从后向前扫描各 chunk 补全 ``tool_calls``。
     """
     if not chunks:
         return AIMessage(content="")
     agg: AIMessageChunk = reduce(add, chunks)
     tc = list(getattr(agg, "tool_calls", None) or [])
+    if not tc:
+        for ch in reversed(chunks):
+            tco = getattr(ch, "tool_calls", None) or []
+            if tco:
+                tc = list(tco)
+                break
     raw = getattr(agg, "content", None)
     if raw is None:
         raw = ""
@@ -291,6 +300,16 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
         )
         thought = parsed.get("thought", "") or ""
         action = (parsed.get("action") or "").strip()
+        # 未勾选深度搜索时默认忽略 reasoning 块，便于 thought 不含厂商长推理；但 MiniMax 等常把
+        # Thought/Action 全文放在 reasoning 通道，仅 text 为空会导致 empty_action。无 action 时补解析一次。
+        if not action and not inc_r:
+            parsed2 = agent._parse_llm_response(
+                resp, include_reasoning_in_plain=True
+            )
+            if (parsed2.get("action") or "").strip():
+                parsed = parsed2
+                thought = parsed.get("thought", "") or ""
+                action = (parsed.get("action") or "").strip()
         action_input = parsed.get("action_input") or {}
 
         # 空 action 不得视为成功结束（否则未产出有效决策也会标记 success）
