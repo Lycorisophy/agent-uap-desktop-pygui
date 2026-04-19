@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from uap.card import CardContext, CardResponse
 
@@ -92,7 +92,27 @@ class CardsApiMixin:
         self.card_manager.create_card(card)
         return {"success": True, "card": card.to_dict()}
 
-    def get_card_history(self, project_id: str, limit: int = 50) -> list[dict]:
-        """Get card history"""
-        cards = self.card_manager.get_card_history_for_project(project_id, limit)
-        return [card.to_dict() for card in cards]
+    def get_card_history(self, project_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """
+        项目卡片时间线：SQLite 持久化为主，并与内存中仍 pending 的卡片合并（按 card_id 去重）。
+        """
+        if not project_id or project_id == "undefined":
+            return []
+        db_rows: list[dict[str, Any]] = []
+        cp = getattr(self, "card_persistence", None)
+        if cp is not None and getattr(cp, "enabled", False):
+            db_rows = cp.list_by_project(project_id, limit=max(1, limit * 2))
+
+        by_id: dict[str, dict[str, Any]] = {str(r["card_id"]): r for r in db_rows}
+
+        for card in self.card_manager.get_pending_cards():
+            pid = str((card.context or {}).get("project_id") or "")
+            if pid != str(project_id):
+                continue
+            d = card.to_dict()
+            d["status"] = "pending"
+            by_id[card.card_id] = d
+
+        merged = list(by_id.values())
+        merged.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return merged[: max(1, int(limit))]

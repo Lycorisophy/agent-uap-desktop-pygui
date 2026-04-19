@@ -4,10 +4,11 @@ UAP 卡片管理器
 管理卡片的生命周期：创建、等待响应、处理响应
 """
 
+import logging
 import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from uap.card.models import (
     CardType,
@@ -16,18 +17,25 @@ from uap.card.models import (
     ConfirmationCard
 )
 
+if TYPE_CHECKING:
+    from uap.card.persistence import CardPersistence
+
+_LOG = logging.getLogger("uap.card.manager")
+
 
 class CardManager:
     """卡片管理器"""
     
-    def __init__(self, default_timeout: int = 300):
+    def __init__(self, default_timeout: int = 300, persistence: Optional["CardPersistence"] = None):
         """
         初始化卡片管理器
         
         Args:
             default_timeout: 默认卡片超时时间（秒）
+            persistence: 可选 SQLite 持久化（卡片时间线）
         """
         self._default_timeout = default_timeout
+        self._persistence = persistence
         self._pending_cards: dict[str, ConfirmationCard] = {}  # card_id -> card
         self._card_history: list[ConfirmationCard] = []  # 历史卡片
         self._responses: dict[str, CardResponse] = {}  # card_id -> response
@@ -71,7 +79,15 @@ class CardManager:
             # 创建等待事件
             self._waiting_threads[card.card_id] = threading.Event()
             
-            return card.card_id
+            out_id = card.card_id
+
+        if self._persistence is not None and self._persistence.enabled:
+            try:
+                self._persistence.insert_pending(card)
+            except Exception as e:
+                _LOG.error("[CardManager] persistence insert_pending: %s", e)
+
+        return out_id
     
     def get_pending_cards(self) -> list[ConfirmationCard]:
         """获取所有待处理的卡片"""
@@ -142,6 +158,11 @@ class CardManager:
                     )
                 )
             else:
+                if self._persistence is not None and self._persistence.enabled:
+                    try:
+                        self._persistence.update_status_expired(card_id)
+                    except Exception as e:
+                        _LOG.error("[CardManager] persistence expired: %s", e)
                 with self._lock:
                     card = self._pending_cards.get(card_id)
                 if card is not None:
@@ -220,6 +241,17 @@ class CardManager:
             cb_type = card.card_type
             cb_resp = response_for_cb
             removed_card = card
+
+        if self._persistence is not None and self._persistence.enabled and removed_card is not None:
+            try:
+                self._persistence.update_responded(
+                    response.card_id,
+                    cb_resp.selected_option_id,
+                    cb_resp.metadata,
+                    cb_resp.timestamp,
+                )
+            except Exception as e:
+                _LOG.error("[CardManager] persistence update_responded: %s", e)
 
         if removed_card is not None:
             self._notify_pending_removed(removed_card, "responded")

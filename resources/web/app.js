@@ -810,7 +810,25 @@ function bindModelingEvents() {
 
 // ==================== 智能体侧边栏 ====================
 
+let _cardsPollTimer = null;
+
+function clearCardsPoll() {
+    if (_cardsPollTimer) {
+        clearInterval(_cardsPollTimer);
+        _cardsPollTimer = null;
+    }
+}
+
+function scheduleCardsPoll() {
+    clearCardsPoll();
+    loadProjectCardsTimeline();
+    _cardsPollTimer = setInterval(loadProjectCardsTimeline, 3000);
+}
+
 function switchAgentTab(tabName) {
+    if (tabName !== 'cards') {
+        clearCardsPoll();
+    }
     // 更新标签按钮状态
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -829,6 +847,9 @@ function switchAgentTab(tabName) {
         case 'history':
             loadModelingConversationHistory();
             break;
+        case 'cards':
+            scheduleCardsPoll();
+            break;
         case 'files':
             loadProjectFiles();
             break;
@@ -837,6 +858,62 @@ function switchAgentTab(tabName) {
             break;
     }
 }
+
+/**
+ * 右侧「卡片」页：SQLite + 内存 pending 合并后的时间线（只读）。
+ */
+async function loadProjectCardsTimeline() {
+    const el = document.getElementById('cardsTimelineList');
+    if (!el) return;
+    const pid = state.currentProject && state.currentProject.id;
+    if (!pid) {
+        el.innerHTML = '<div class="empty-state">请先选择项目</div>';
+        return;
+    }
+    if (!isPywebviewApiCallable() || !window.pywebview.api.get_card_history) {
+        el.innerHTML = '<div class="empty-state">当前环境无法加载卡片历史</div>';
+        return;
+    }
+    try {
+        const rows = await window.pywebview.api.get_card_history(pid, 80);
+        if (!rows || !rows.length) {
+            el.innerHTML = '<div class="empty-state">暂无卡片记录</div>';
+            return;
+        }
+        const sorted = [...rows].sort((a, b) => {
+            const pa = (a.status === 'pending' ? 1 : 0);
+            const pb = (b.status === 'pending' ? 1 : 0);
+            if (pa !== pb) return pb - pa;
+            return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+        });
+        el.innerHTML = sorted
+            .map((c) => {
+                const st = escapeHtml(String(c.status || ''));
+                const ctype = escapeHtml(String(c.card_type || ''));
+                const t = escapeHtml(String(c.title || ''));
+                const ct = escapeHtml(String(c.created_at || '').slice(0, 19));
+                const sel = c.selected_option_id != null ? escapeHtml(String(c.selected_option_id)) : '';
+                const sum = (c.content || '').slice(0, 200);
+                const sumHtml = escapeHtml(sum) + (sum.length >= 200 ? '…' : '');
+                return `
+            <div class="cards-timeline-entry status-${st}">
+                <div class="ct-meta">
+                    <span class="badge">${ctype}</span>
+                    <span>${st}</span>
+                    <span>${ct}</span>
+                    ${sel ? `<span>选项: ${sel}</span>` : ''}
+                </div>
+                <div class="ct-title">${t || '（无标题）'}</div>
+                <div class="hint" style="white-space:pre-wrap;">${sumHtml}</div>
+            </div>`;
+            })
+            .join('');
+    } catch (e) {
+        el.innerHTML = `<div class="empty-state">加载失败: ${escapeHtml(String(e.message || e))}</div>`;
+    }
+}
+
+window.loadProjectCardsTimeline = loadProjectCardsTimeline;
 
 // 刷新技能列表
 async function loadSkillsList() {
@@ -2166,6 +2243,14 @@ async function appendModelingAssistantWithTrace(response) {
         } catch (e) {
             console.error('[modeling] 技能确认卡片挂载失败:', e);
         }
+    }
+    try {
+        const cp = document.getElementById('cardsPanel');
+        if (cp && cp.classList.contains('active')) {
+            loadProjectCardsTimeline();
+        }
+    } catch (e) {
+        /* ignore */
     }
 }
 

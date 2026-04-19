@@ -20,6 +20,7 @@ from uap.card.models import (
 )
 from uap.card.generator import CardGenerator
 from uap.card.manager import CardManager
+from uap.card.persistence import CardPersistence
 
 __all__ = [
     # 模型
@@ -33,4 +34,5 @@ __all__ = [
     'CardGenerator',
     # 管理器
     'CardManager',
+    'CardPersistence',
 ]

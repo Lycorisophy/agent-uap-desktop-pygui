@@ -16,6 +16,7 @@ from uap.application.project_service import ProjectService
 from uap.application.prediction_service import PredictionService
 from uap.scheduler import TaskScheduler, SchedulerConfig
 from uap.card import CardManager, CardGenerator
+from uap.card.persistence import CardPersistence
 from uap.skill import get_atomic_skills_library
 from uap.infrastructure.knowledge import ProjectKnowledgeService
 from uap.infrastructure.modeling_stream_hub import ModelingStreamHub
@@ -37,7 +38,10 @@ class UAPApiBase:
         self.prediction_service = PredictionService(self.project_store, self.config)
         self.scheduler = self._init_scheduler()
 
-        self.card_manager = CardManager(default_timeout=300)
+        _idx = Path(projects_root) / "_uap_index"
+        _idx.mkdir(parents=True, exist_ok=True)
+        self.card_persistence = CardPersistence(_idx / "cards.sqlite")
+        self.card_manager = CardManager(default_timeout=300, persistence=self.card_persistence)
         self.card_generator = CardGenerator()
 
         self.atomic_skills = get_atomic_skills_library()

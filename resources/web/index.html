@@ -109,6 +109,10 @@
                                 <span class="tab-icon">💬</span>
                                 <span>历史</span>
                             </button>
+                            <button class="tab-btn" data-tab="cards">
+                                <span class="tab-icon">🗂️</span>
+                                <span>卡片</span>
+                            </button>
                             <button class="tab-btn" data-tab="files">
                                 <span class="tab-icon">📁</span>
                                 <span>文件</span>
@@ -180,6 +184,15 @@
                                 </div>
                             </div>
                             <!-- 建模历史会话 -->
+                            <div class="tab-panel" id="cardsPanel">
+                                <div class="panel-header">
+                                    <h4>卡片时间线</h4>
+                                    <button type="button" class="btn-icon refresh-btn" onclick="loadProjectCardsTimeline()" title="刷新">⟳</button>
+                                </div>
+                                <div class="cards-timeline hint" id="cardsTimelineList">
+                                    <div class="empty-state">选择项目后自动加载；待处理卡片置顶高亮。</div>
+                                </div>
+                            </div>
                             <div class="tab-panel" id="historyPanel">
                                 <div class="panel-header">
                                     <h4>历史对话</h4>

@@ -1920,6 +1920,48 @@ select {
     color: var(--text-color);
 }
 
+.cards-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(60vh, 480px);
+    overflow-y: auto;
+}
+
+.cards-timeline-entry {
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    font-size: 12px;
+}
+
+.cards-timeline-entry.status-pending {
+    border-color: #ea580c;
+    box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.25);
+}
+
+.cards-timeline-entry .ct-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 4px;
+    color: var(--text-muted, #64748b);
+}
+
+.cards-timeline-entry .ct-title {
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.cards-timeline-entry.status-responded,
+.cards-timeline-entry.status-dismissed,
+.cards-timeline-entry.status-expired {
+    opacity: 0.88;
+}
+
 /* ==================== 技能列表 ==================== */
 .skills-list {
     display: flex;
