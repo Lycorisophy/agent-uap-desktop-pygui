@@ -2148,6 +2148,80 @@ async function appendModelingAssistantWithTrace(response) {
             console.error('[modeling] 追问卡片挂载失败:', e);
         }
     }
+    if (
+        inner &&
+        response.pending_model_confirm_card &&
+        state.currentProject &&
+        isPywebviewApiCallable()
+    ) {
+        try {
+            mountInlineDstConfirmCard(inner, response.pending_model_confirm_card, state.currentProject.id);
+        } catch (e) {
+            console.error('[modeling] 模型确认卡片挂载失败:', e);
+        }
+    }
+    if (inner && response.solidified_skill && response.solidified_skill.card && state.currentProject && isPywebviewApiCallable()) {
+        try {
+            mountInlineDstConfirmCard(inner, response.solidified_skill.card, state.currentProject.id);
+        } catch (e) {
+            console.error('[modeling] 技能确认卡片挂载失败:', e);
+        }
+    }
+}
+
+/**
+ * 统一 DST 确认卡（模型确认 / 技能草稿确认）：仅选项 + submit_card_response，不调 modeling_chat。
+ */
+function mountInlineDstConfirmCard(containerEl, card, projectId) {
+    if (!containerEl || !card || !card.card_id) return;
+    if (containerEl.querySelector('.uap-dst-confirm-card')) return;
+
+    const cardId = String(card.card_id);
+    const title = escapeHtml(card.title || '请确认');
+    const content = escapeHtml(card.content || '').replace(/\n/g, '<br>');
+    const opts = Array.isArray(card.options) ? card.options : [];
+
+    const wrap = document.createElement('div');
+    wrap.className = 'uap-dst-confirm-card uap-ask-user-card';
+    wrap.dataset.cardId = cardId;
+
+    let optionsHtml = '';
+    opts.forEach((o) => {
+        const oid = escapeHtml(String(o.id != null ? o.id : ''));
+        const lab = escapeHtml(String(o.label || o.id || ''));
+        optionsHtml += `<button type="button" class="btn btn-secondary uap-dst-confirm-opt" data-opt-id="${oid}" style="margin:4px 4px 4px 0">${lab}</button>`;
+    });
+
+    wrap.innerHTML = `
+        <div class="uap-ask-user-card-title">${title}</div>
+        <div class="uap-ask-user-card-body">${content}</div>
+        <div class="uap-ask-user-card-options">${optionsHtml}</div>
+    `;
+    containerEl.appendChild(wrap);
+
+    wrap.querySelectorAll('.uap-dst-confirm-opt').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const optId = btn.getAttribute('data-opt-id');
+            if (!optId || !window.pywebview?.api?.submit_card_response) {
+                showToast('无法提交卡片', 'warning');
+                return;
+            }
+            btn.disabled = true;
+            wrap.querySelectorAll('.uap-dst-confirm-opt').forEach((b) => {
+                b.disabled = true;
+            });
+            try {
+                const sr = await window.pywebview.api.submit_card_response(cardId, optId);
+                if (sr && sr.success) {
+                    showToast('已提交', 'success');
+                } else {
+                    showToast('提交失败', 'warning');
+                }
+            } catch (e) {
+                showToast('提交失败: ' + (e.message || e), 'error');
+            }
+        });
+    });
 }
 
 /**

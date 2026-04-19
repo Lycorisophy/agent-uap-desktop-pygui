@@ -37,6 +37,12 @@ from uap.project.models import (
     Variable,
     Relation,
 )
+from uap.application.dst_pipeline import (
+    is_modeling_dst_complete,
+    pending_model_snap_key,
+    pending_skill_draft_key,
+)
+from uap.card.models import CardOption, CardPriority, CardResponse, CardType, ConfirmationCard
 from uap.react.ask_user_card import build_ask_user_confirmation_card
 from uap.react.context_helpers import format_system_model_for_prompt
 
@@ -84,7 +90,219 @@ class ProjectService:
             _LOG.warning("LLM 配置不完整，回退默认 Ollama 客户端用于抽取: %s", e)
             llm_client = create_llm_chat_client(LLMConfig())
         self._extractor = extractor or ModelExtractor(llm_client)
-    
+        self._pending_skill_drafts: dict[str, dict[str, Any]] = {}
+        self._pending_model_snapshots: dict[str, dict[str, Any]] = {}
+        self._card_to_pending: dict[str, str] = {}
+        self._dst_card_cm_id: int | None = None
+        self._api_card_manager: Any = None
+
+    def attach_card_manager(self, card_manager: Any) -> None:
+        """由 UAPApi 在构造后调用一次：注册 DST 确认卡回调与过期清理。"""
+        if card_manager is None:
+            return
+        self._api_card_manager = card_manager
+        if self._dst_card_cm_id == id(card_manager):
+            return
+        self._dst_card_cm_id = id(card_manager)
+        card_manager.register_callback(
+            CardType.SKILL_DRAFT_CONFIRM, self._on_skill_draft_card_response
+        )
+        card_manager.register_callback(CardType.MODEL_CONFIRM, self._on_model_confirm_card_response)
+        card_manager.register_on_pending_card_removed(self._on_pending_card_expired_cleanup)
+
+    def _on_pending_card_expired_cleanup(self, card: ConfirmationCard, reason: str) -> None:
+        if reason != "expired":
+            return
+        self._card_to_pending.pop(card.card_id, None)
+        pk = (card.context or {}).get("pending_key")
+        if isinstance(pk, str):
+            self._purge_pending_payload_by_key(pk)
+
+    def _purge_pending_payload_by_key(self, pending_key: str) -> None:
+        from uap.application.dst_pipeline import parse_pending_key
+
+        parsed = parse_pending_key(pending_key)
+        if not parsed:
+            return
+        kind, pid = parsed
+        if kind == "skill_draft":
+            self._pending_skill_drafts.pop(pid, None)
+        elif kind == "model_snap":
+            self._pending_model_snapshots.pop(pid, None)
+
+    def _register_card_pending(self, card_id: str, pending_key: str, card: ConfirmationCard) -> None:
+        self._card_to_pending[card_id] = pending_key
+        if isinstance(card.context, dict):
+            card.context["pending_key"] = pending_key
+
+    def _pop_card_pending_key(self, card_id: str) -> str | None:
+        return self._card_to_pending.pop(card_id, None)
+
+    def _on_skill_draft_card_response(self, response: Any) -> None:
+        if not isinstance(response, CardResponse):
+            return
+        cid = response.card_id
+        pk = self._pop_card_pending_key(cid)
+        if not pk or not pk.startswith("skill_draft:"):
+            return
+        draft_id = pk.split(":", 1)[1]
+        sel = response.selected_option_id
+        if sel == "confirm_create_skill":
+            self.handle_skill_confirmation(draft_id, True)
+        elif sel == "discard_skill_draft":
+            self.handle_skill_confirmation(draft_id, False)
+
+    def _on_model_confirm_card_response(self, response: Any) -> None:
+        if not isinstance(response, CardResponse):
+            return
+        cid = response.card_id
+        pk = self._pop_card_pending_key(cid)
+        if not pk or not pk.startswith("model_snap:"):
+            return
+        snap_id = pk.split(":", 1)[1]
+        self.handle_model_snapshot_confirmation(snap_id, response.selected_option_id)
+
+    def handle_skill_confirmation(self, draft_id: str, confirmed: bool) -> dict[str, Any]:
+        draft = self._pending_skill_drafts.pop(draft_id, None)
+        if not draft:
+            return {"ok": False, "error": "draft_not_found"}
+        if not confirmed:
+            _LOG.info("[SkillDraft] discarded draft_id=%s", draft_id)
+            return {"ok": True, "discarded": True}
+        try:
+            from uap.skill.skill_store import SkillStore
+
+            skill = draft["skill"]
+            store = SkillStore(str(self._store.root))
+            path = store.save_skill(skill)
+            _LOG.info("[SkillDraft] saved skill_id=%s path=%s", skill.skill_id, path)
+            return {"ok": True, "skill_id": skill.skill_id, "path": path}
+        except Exception as e:
+            _LOG.exception("[SkillDraft] save failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    def handle_model_snapshot_confirmation(self, snapshot_id: str, selected_option_id: str) -> dict[str, Any]:
+        snap = self._pending_model_snapshots.pop(snapshot_id, None)
+        if not snap:
+            return {"ok": False, "error": "snapshot_not_found"}
+        project_id = str(snap.get("project_id") or "")
+        if selected_option_id in ("cancel", "edit"):
+            _LOG.info("[ModelSnap] user %s snapshot_id=%s", selected_option_id, snapshot_id)
+            return {"ok": True, "discarded": True, "action": selected_option_id}
+        if selected_option_id != "confirm":
+            return {"ok": False, "error": "unknown_option"}
+
+        try:
+            project = self._store.get_project(project_id)
+            if not project:
+                return {"ok": False, "error": "project_not_found"}
+            raw = snap.get("model_dict")
+            if not isinstance(raw, dict):
+                return {"ok": False, "error": "invalid_snapshot"}
+            model = SystemModel(**raw)
+            project.system_model = model
+            project.status = ProjectStatus.MODELING
+            project = self._store.update_project(project)
+            self._save_system_model_file(project_id, model)
+
+            out: dict[str, Any] = {"ok": True, "saved": True, "model_id": model.id}
+            if snap.get("defer_skill_solidification") and snap.get("skill_session_dump"):
+                skill_out = self._finalize_skill_after_model_confirm(
+                    project_id=project_id,
+                    project_name=str(snap.get("project_name") or project.name),
+                    session_dump=snap["skill_session_dump"],
+                    business_success=bool(snap.get("business_success")),
+                )
+                if skill_out:
+                    out["solidified_skill"] = skill_out
+            return out
+        except Exception as e:
+            _LOG.exception("[ModelSnap] persist failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    def _finalize_skill_after_model_confirm(
+        self,
+        project_id: str,
+        project_name: str,
+        session_dump: dict[str, Any],
+        business_success: bool,
+    ) -> dict[str, Any] | None:
+        if not getattr(self._cfg.agent, "modeling_skill_solidification_enabled", False):
+            return None
+        if not business_success:
+            return None
+        try:
+            from uap.core.skills.models import SkillSession
+            from uap.infrastructure.llm.factory import create_llm_chat_client
+            from uap.skill.generator import SkillGenerator
+            from uap.skill.skill_store import SkillStore
+
+            session = SkillSession.model_validate(session_dump)
+            llm = create_llm_chat_client(self._cfg.llm)
+            gen = SkillGenerator(llm)
+            project_info = {"project_id": project_id, "id": project_id, "name": project_name}
+            skill = gen.generate(session, project_info)
+            if not skill:
+                return None
+            cm = self._api_card_manager
+            if cm is None:
+                store = SkillStore(str(self._store.root))
+                path = store.save_skill(skill)
+                return {"skill_id": skill.skill_id, "path": path, "auto_saved": True}
+            draft_id = f"skill_draft_{session.session_id}_{int(datetime.now().timestamp())}"
+            self._pending_skill_drafts[draft_id] = {
+                "skill": skill,
+                "project_id": project_id,
+                "session_id": session.session_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            card = self._build_skill_confirm_card(draft_id, skill, project_id)
+            cm.create_card(card)
+            pk = pending_skill_draft_key(draft_id)
+            self._register_card_pending(card.card_id, pk, card)
+            return {
+                "skill_draft_id": draft_id,
+                "pending_confirmation": True,
+                "card_id": card.card_id,
+                "card": card.to_dict(),
+            }
+        except Exception as e:
+            _LOG.warning("[ModelSnap] post-confirm skill gen failed: %s", e)
+            return None
+
+    def _build_skill_confirm_card(self, draft_id: str, skill: Any, project_id: str) -> ConfirmationCard:
+        triggers = getattr(skill, "trigger_conditions", None) or []
+        if not isinstance(triggers, list):
+            triggers = []
+        preview = triggers[:3]
+        params = getattr(skill, "parameters", None) or []
+        param_names = [getattr(p, "name", str(p)) for p in params[:12]]
+
+        lines = [
+            f"**{getattr(skill, 'name', '技能')}**",
+            "",
+            f"- 触发条件示例：{', '.join(preview) if preview else '（未列出）'}",
+            f"- 参数：{', '.join(param_names) if param_names else '无'}",
+            "",
+            (getattr(skill, "description", "") or "")[:1200],
+        ]
+        content = "\n".join(lines)
+        return ConfirmationCard(
+            card_id=f"skill_confirm_{draft_id}_{uuid.uuid4().hex[:8]}",
+            card_type=CardType.SKILL_DRAFT_CONFIRM,
+            title="确认保存生成的技能",
+            content=content,
+            options=[
+                CardOption(id="confirm_create_skill", label="确认创建", description="写入技能库"),
+                CardOption(id="discard_skill_draft", label="放弃", description="丢弃本次草稿"),
+            ],
+            priority=CardPriority.HIGH,
+            context={
+                "project_id": project_id,
+                "draft_id": draft_id,
+            },
+        )
+
     def refresh_extractor(self):
         """重新创建提取器以使用最新配置"""
         from uap.infrastructure.llm.model_extractor import ModelExtractor
@@ -784,6 +1002,9 @@ class ProjectService:
         _LOG.info("[Modeling/ReAct] done success=%s steps=%d", result.success, result.total_steps)
 
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
+        substantive = self._modeling_snapshot_substantive(model)
+        business_success = self._business_modeling_success(result.success, substantive)
+
         pending_ask_user_card: dict | None = None
         if (
             card_manager
@@ -805,8 +1026,29 @@ class ProjectService:
             card_manager.create_card(ask_card)
             pending_ask_user_card = ask_card.to_dict()
 
-        pending_card = None
-        if model and card_integration and (model.variables or model.relations):
+        pending_card: str | None = None
+        pending_model_confirm_card: dict | None = None
+        defer_model_confirm = bool(
+            model and card_integration and card_manager and is_modeling_dst_complete(model)
+        )
+
+        session_obj = dst_manager.get_session(result.session_id)
+        session_dump = session_obj.model_dump() if session_obj else None
+
+        if defer_model_confirm:
+            snap_id = uuid.uuid4().hex
+            self._pending_model_snapshots[snap_id] = {
+                "model_dict": model.model_dump() if model else {},
+                "project_id": project_id,
+                "project_name": project.name,
+                "session_id": result.session_id,
+                "skill_session_dump": session_dump,
+                "business_success": business_success,
+                "defer_skill_solidification": bool(
+                    getattr(self._cfg.agent, "modeling_skill_solidification_enabled", False)
+                    and business_success
+                ),
+            }
             pending_card = card_integration.create_model_confirm_card(
                 session_id=result.session_id,
                 project_id=project_id,
@@ -814,13 +1056,18 @@ class ProjectService:
                 relations=[r.model_dump() for r in model.relations],
                 constraints=model.constraints or [],
             )
-        if model:
+            if pending_card and card_manager:
+                crd = card_manager.get_card(pending_card)
+                if crd:
+                    pk = pending_model_snap_key(snap_id)
+                    self._register_card_pending(pending_card, pk, crd)
+                    pending_model_confirm_card = crd.to_dict()
+        elif model:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
             self._save_system_model_file(project_id, model)
 
-        substantive = self._modeling_snapshot_substantive(model)
         out = {
             "ok": True,
             "message": self._generate_response_message(result, model),
@@ -829,24 +1076,28 @@ class ProjectService:
             "steps": [s.model_dump() for s in result.steps],
             "dst_state": result.dst_state,
             "pending_card": pending_card,
+            "pending_model_confirm_card": pending_model_confirm_card,
+            "model_persist_deferred": bool(defer_model_confirm),
             "pending_ask_user_card": pending_ask_user_card,
             "success": result.success,
             "modeling_substantive": substantive,
-            "business_success": self._business_modeling_success(result.success, substantive),
+            "business_success": business_success,
             "pending_user_input": result.pending_user_input,
             "tool_calls": result.tool_calls,
             "stop_reason": _modeling_stop_reason(result.error_message),
         }
         self._persist_dst_project_aggregate(project_id, dst_manager)
-        sol = self._maybe_persist_generated_skill_from_modeling(
-            project_id,
-            project.name,
-            dst_manager,
-            result.session_id,
-            out["business_success"],
-        )
-        if sol:
-            out["solidified_skill"] = sol
+        if not defer_model_confirm:
+            sol = self._maybe_generate_skill_draft_and_request_confirmation(
+                project_id,
+                project.name,
+                dst_manager,
+                result.session_id,
+                business_success,
+                card_manager,
+            )
+            if sol:
+                out["solidified_skill"] = sol
         return out
 
     def _run_plan_modeling(
@@ -914,8 +1165,31 @@ class ProjectService:
 
         result = plan_agent.run(user_message, context)
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
-        pending_card = None
-        if model and card_integration and (model.variables or model.relations):
+        substantive = self._modeling_snapshot_substantive(model)
+        business_success = self._business_modeling_success(result.success, substantive)
+
+        pending_card: str | None = None
+        pending_model_confirm_card: dict | None = None
+        defer_model_confirm = bool(
+            model and card_integration and card_manager and is_modeling_dst_complete(model)
+        )
+        session_obj = dst_manager.get_session(result.session_id)
+        session_dump = session_obj.model_dump() if session_obj else None
+
+        if defer_model_confirm:
+            snap_id = uuid.uuid4().hex
+            self._pending_model_snapshots[snap_id] = {
+                "model_dict": model.model_dump() if model else {},
+                "project_id": project_id,
+                "project_name": project.name,
+                "session_id": result.session_id,
+                "skill_session_dump": session_dump,
+                "business_success": business_success,
+                "defer_skill_solidification": bool(
+                    getattr(self._cfg.agent, "modeling_skill_solidification_enabled", False)
+                    and business_success
+                ),
+            }
             pending_card = card_integration.create_model_confirm_card(
                 session_id=result.session_id,
                 project_id=project_id,
@@ -923,7 +1197,13 @@ class ProjectService:
                 relations=[r.model_dump() for r in model.relations],
                 constraints=model.constraints or [],
             )
-        if model:
+            if pending_card and card_manager:
+                crd = card_manager.get_card(pending_card)
+                if crd:
+                    pk = pending_model_snap_key(snap_id)
+                    self._register_card_pending(pending_card, pk, crd)
+                    pending_model_confirm_card = crd.to_dict()
+        elif model:
             project.system_model = model
             project.status = ProjectStatus.MODELING
             project = self._store.update_project(project)
@@ -937,7 +1217,6 @@ class ProjectService:
             if st.tool_name
             and str(getattr(st.status, "value", st.status)) == "completed"
         )
-        substantive = self._modeling_snapshot_substantive(model)
         out = {
             "ok": True,
             "message": self._generate_response_message(result, model),
@@ -947,23 +1226,27 @@ class ProjectService:
             "plan": plan_dump,
             "dst_state": result.dst_state,
             "pending_card": pending_card,
+            "pending_model_confirm_card": pending_model_confirm_card,
+            "model_persist_deferred": bool(defer_model_confirm),
             "success": result.success,
             "modeling_substantive": substantive,
-            "business_success": self._business_modeling_success(result.success, substantive),
+            "business_success": business_success,
             "tool_calls": tool_calls,
             "replan_count": result.replan_count,
             "stop_reason": _modeling_stop_reason(result.error_message),
         }
         self._persist_dst_project_aggregate(project_id, dst_manager)
-        sol = self._maybe_persist_generated_skill_from_modeling(
-            project_id,
-            project.name,
-            dst_manager,
-            result.session_id,
-            out["business_success"],
-        )
-        if sol:
-            out["solidified_skill"] = sol
+        if not defer_model_confirm:
+            sol = self._maybe_generate_skill_draft_and_request_confirmation(
+                project_id,
+                project.name,
+                dst_manager,
+                result.session_id,
+                business_success,
+                card_manager,
+            )
+            if sol:
+                out["solidified_skill"] = sol
         return out
 
     def react_modeling(
@@ -1292,14 +1575,15 @@ class ProjectService:
         except OSError as e:
             _LOG.warning("[Modeling] save_dst_aggregate failed: %s", e)
 
-    def _maybe_persist_generated_skill_from_modeling(
+    def _maybe_generate_skill_draft_and_request_confirmation(
         self,
         project_id: str,
         project_name: str,
         dst_manager: Any,
         session_id: str,
         business_success: bool,
-    ) -> dict[str, str] | None:
+        card_manager: Any = None,
+    ) -> dict[str, Any] | None:
         if not getattr(self._cfg.agent, "modeling_skill_solidification_enabled", False):
             return None
         if not business_success or not (project_id or "").strip():
@@ -1323,9 +1607,28 @@ class ProjectService:
             skill = gen.generate(session, project_info)
             if not skill:
                 return None
-            store = SkillStore(str(self._store.root))
-            path = store.save_skill(skill)
-            return {"skill_id": skill.skill_id, "path": path}
+            if card_manager is None:
+                store = SkillStore(str(self._store.root))
+                path = store.save_skill(skill)
+                return {"skill_id": skill.skill_id, "path": path, "auto_saved": True}
+
+            draft_id = f"skill_draft_{session_id}_{int(datetime.now().timestamp())}"
+            self._pending_skill_drafts[draft_id] = {
+                "skill": skill,
+                "project_id": project_id,
+                "session_id": session_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            card = self._build_skill_confirm_card(draft_id, skill, project_id)
+            card_manager.create_card(card)
+            pk = pending_skill_draft_key(draft_id)
+            self._register_card_pending(card.card_id, pk, card)
+            return {
+                "skill_draft_id": draft_id,
+                "pending_confirmation": True,
+                "card_id": card.card_id,
+                "card": card.to_dict(),
+            }
         except Exception as e:
             _LOG.warning("[Modeling] skill solidification failed: %s", e)
             return None

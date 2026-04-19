@@ -33,12 +33,23 @@ class CardManager:
         self._responses: dict[str, CardResponse] = {}  # card_id -> response
         self._waiting_threads: dict[str, threading.Event] = {}  # card_id -> event
         self._callbacks: dict[CardType, list[Callable]] = defaultdict(list)  # type -> callbacks
+        self._on_pending_removed: list[Callable[[ConfirmationCard, str], None]] = []
         self._lock = threading.Lock()
     
     def register_callback(self, card_type: CardType, callback: Callable[[CardResponse], None]):
         """注册卡片响应回调"""
         with self._lock:
             self._callbacks[card_type].append(callback)
+
+    def register_on_pending_card_removed(
+        self, callback: Callable[[ConfirmationCard, str], None]
+    ) -> None:
+        """
+        待处理卡片从 pending 中移除时调用（含用户 submit_response、过期静默删除、关闭等）。
+        第二个参数 reason: \"responded\" | \"expired\" | 其它扩展。
+        """
+        with self._lock:
+            self._on_pending_removed.append(callback)
     
     def create_card(self, card: ConfirmationCard) -> str:
         """
@@ -132,6 +143,10 @@ class CardManager:
                 )
             else:
                 with self._lock:
+                    card = self._pending_cards.get(card_id)
+                if card is not None:
+                    self._notify_pending_removed(card, "expired")
+                with self._lock:
                     if card_id in self._pending_cards:
                         del self._pending_cards[card_id]
                     if card_id in self._waiting_threads:
@@ -176,6 +191,7 @@ class CardManager:
         Returns:
             是否成功
         """
+        removed_card: Optional[ConfirmationCard] = None
         with self._lock:
             card = self._pending_cards.get(response.card_id)
             if card is None:
@@ -203,6 +219,10 @@ class CardManager:
 
             cb_type = card.card_type
             cb_resp = response_for_cb
+            removed_card = card
+
+        if removed_card is not None:
+            self._notify_pending_removed(removed_card, "responded")
 
         self._trigger_callbacks(cb_type, cb_resp)
 
@@ -228,6 +248,14 @@ class CardManager:
                     count += 1
         return count
     
+    def _notify_pending_removed(self, card: ConfirmationCard, reason: str) -> None:
+        listeners = list(self._on_pending_removed)
+        for cb in listeners:
+            try:
+                cb(card, reason)
+            except Exception as e:
+                print(f"Card on_removed listener error: {e}")
+
     def _trigger_callbacks(self, card_type: CardType, response: CardResponse):
         """触发注册的回调"""
         callbacks = self._callbacks.get(card_type, [])

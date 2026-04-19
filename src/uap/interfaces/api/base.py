@@ -47,6 +47,7 @@ class UAPApiBase:
         self.card_manager.register_callback(
             CardType.ASK_USER, self._on_ask_user_card_response
         )
+        self.project_service.attach_card_manager(self.card_manager)
         self._spawn_card_expiry_watcher()
 
     def _on_ask_user_card_response(self, response: CardResponse) -> None:

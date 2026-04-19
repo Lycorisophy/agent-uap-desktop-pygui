@@ -28,6 +28,7 @@ class CardType(str, Enum):
     # 技能相关
     SKILL_SELECTION = "skill_selection"         # 技能选择
     SKILL_SAVE_PROMPT = "skill_save_prompt"   # 技能保存提示
+    SKILL_DRAFT_CONFIRM = "skill_draft_confirm"  # 轨迹固化技能草稿，待用户确认后落库
 
     # 建模对话追问（ReAct ask_user，与模型确认卡区分）
     ASK_USER = "ask_user"

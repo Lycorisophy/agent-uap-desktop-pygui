@@ -286,6 +286,8 @@ class ProjectsApiMixin:
                 "steps": result.get("steps", []),
                 "dst_state": dst_state,
                 "pending_card": result.get("pending_card"),
+                "pending_model_confirm_card": result.get("pending_model_confirm_card"),
+                "model_persist_deferred": bool(result.get("model_persist_deferred", False)),
                 "pending_ask_user_card": result.get("pending_ask_user_card"),
                 "success": result.get("success", False),
                 "modeling_substantive": bool(result.get("modeling_substantive", False)),
