@@ -351,7 +351,7 @@ class ReactAgent:
 
         skills_desc = self._format_skills_list()
         trajectory = self._format_trajectory(completed_steps, max_steps, t_cap, o_cap)
-        dst_summary = self._format_dst_summary(dst_session)
+        dst_summary = self._format_dst_summary(dst_session, extra_context)
 
         system_model = (extra_context.get("system_model") or "").strip()
         if not system_model:
@@ -397,6 +397,7 @@ class ReactAgent:
             + self._react_harness_instructions(llm_round)
             + self._modeling_mode_harness_suffix(extra_context)
             + self._deep_search_cot_harness_suffix(extra_context)
+            + self._scheduled_task_harness_suffix(extra_context)
         )
 
     def _modeling_mode_harness_suffix(self, extra_context: dict | None) -> str:
@@ -432,6 +433,16 @@ class ReactAgent:
             "\n- **本轮用户已开启「深度搜索 + 显式思维链」**：需要外部事实时**积极、可多次**调用 "
             "``web_search``；每条 **Thought** 请分步写出（背景/假设 → 检索或工具依据 → 结论与下一步），"
             "避免一句话带过。\n"
+        )
+
+    def _scheduled_task_harness_suffix(self, extra_context: dict | None) -> str:
+        """定时任务辅助模式：明确非主交互、禁止追问与人机确认卡依赖。"""
+        if not (extra_context and extra_context.get("scheduled_task_mode")):
+            return ""
+        return (
+            "\n- **当前为定时任务辅助模式（scheduled）**：由调度器触发，**无用户在线**；"
+            "**禁止**使用 ``ask_user`` 或任何需用户实时确认的操作；不得假设存在人机协同（HITL）或对话态 DST 展示。"
+            "请在信息不足时用 ``FINAL_ANSWER`` 说明局限并收束；工具失败时改用其它可自动化手段或给出结论。\n"
         )
 
     def _react_harness_instructions(self, llm_round: int) -> str:
@@ -484,8 +495,16 @@ class ReactAgent:
             lines.append(f"- {skill_id}: {skill.metadata.description}")
         return "\n".join(lines) if lines else "无可用技能"
 
-    def _format_dst_summary(self, session: SkillSession) -> str:
+    def _format_dst_summary(
+        self, session: SkillSession, extra_context: dict | None = None
+    ) -> str:
         """格式化DST状态摘要"""
+        ex = extra_context or {}
+        if ex.get("scheduled_task_mode"):
+            return (
+                "（定时任务辅助会话：不展示完整对话态 DST 槽位；请以工具结果与 FINAL_ANSWER 收束。）"
+            )
+
         if not session:
             return "DST状态: 新会话"
 
@@ -766,6 +785,11 @@ class ReactAgent:
                 params[k] = hc[k]
 
         if skill_id == "ask_user":
+            if (hc or {}).get("scheduled_task_mode"):
+                return (
+                    "定时任务模式下禁止使用 ask_user（无用户在线）。请改用 FINAL_ANSWER "
+                    "总结已知信息与局限，勿暂停等待输入。"
+                ), True, "scheduled_task_no_hitl"
             q = params.get("question") or params.get("raw") or str(params)
             return (
                 "（已向用户展示上述追问；请用户在下一条消息中直接回复或选择选项，"

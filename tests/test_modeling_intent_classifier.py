@@ -7,6 +7,7 @@ import unittest.mock as mock
 import pytest
 
 from uap.application.modeling_intent_classifier import (
+    classify_intent_scene,
     format_execution_mode_hint,
     run_modeling_intent_scene_if_enabled,
 )
@@ -49,3 +50,50 @@ def test_format_execution_mode_hint_covers_modes():
     ask_h = format_execution_mode_hint("ask")
     assert "ask" in ask_h.lower() or "只读" in ask_h
     assert "read_only_fit" in ask_h.lower() or "read_only_fit" in ask_h
+
+
+def test_format_execution_mode_hint_scheduled():
+    h = format_execution_mode_hint("scheduled")
+    assert "定时任务" in h or "scheduled" in h.lower()
+    assert "scheduled_next" in h or "意图" in h
+
+
+def test_classify_intent_scheduled_parses_scheduled_next(cfg_zero_rounds):
+    fake = mock.MagicMock()
+    fake.invoke = mock.MagicMock(
+        return_value={
+            "content": '{"intent":"prediction","scene":"通用","scheduled_next":"plan"}',
+        }
+    )
+    with mock.patch(
+        "uap.application.modeling_intent_classifier.create_langchain_chat_model",
+        return_value=fake,
+    ):
+        out = classify_intent_scene(
+            cfg_zero_rounds,
+            "[用户] x",
+            "x",
+            mode_requested="scheduled",
+        )
+    assert out["classified_intent"] == "prediction"
+    assert out["classified_scheduled_next"] == "plan"
+
+
+def test_classify_intent_scheduled_invalid_next_falls_back_to_prediction(cfg_zero_rounds):
+    fake = mock.MagicMock()
+    fake.invoke = mock.MagicMock(
+        return_value={
+            "content": '{"intent":"analysis","scene":"通用","scheduled_next":"bogus"}',
+        }
+    )
+    with mock.patch(
+        "uap.application.modeling_intent_classifier.create_langchain_chat_model",
+        return_value=fake,
+    ):
+        out = classify_intent_scene(
+            cfg_zero_rounds,
+            "[用户] x",
+            "x",
+            mode_requested="scheduled",
+        )
+    assert out["classified_scheduled_next"] == "prediction"

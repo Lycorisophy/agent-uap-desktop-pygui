@@ -83,6 +83,52 @@ def test_build_llm_user_content_includes_harness_hints() -> None:
     assert "当前决策轮次" in out and "3" in out
 
 
+def test_build_llm_user_content_includes_scheduled_task_suffix() -> None:
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    dst = DstManager()
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=dst,
+        max_iterations=8,
+        max_time_seconds=300.0,
+        max_ask_user_per_turn=1,
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    sid = str(uuid.uuid4())
+    sess = dst.create_session(
+        sid, "task text", {"project_id": "p1", "scheduled_task_mode": True}
+    )
+    out = agent.build_llm_user_content(
+        "task text",
+        {"project_id": "p1", "scheduled_task_mode": True},
+        sess,
+        [],
+        session_id=sid,
+        llm_round=1,
+        step_id=1,
+    )
+    assert "定时任务辅助模式" in out
+    assert "ask_user" in out
+
+
+def test_execute_skill_rejects_ask_user_in_scheduled_mode() -> None:
+    m = MagicMock(spec=BaseChatModel)
+    m.bind_tools = lambda *a, **k: m
+    agent = ReactAgent(
+        chat_model=m,
+        skills_registry={},
+        dst_manager=DstManager(),
+        compression_config=ContextCompressionConfig(enabled=False),
+    )
+    agent._harness_context = {"scheduled_task_mode": True}
+    obs, is_err, err = agent._execute_skill("ask_user", {"question": "?"})
+    assert is_err is True
+    assert err == "scheduled_task_no_hitl"
+    assert "定时任务" in obs
+
+
 def test_build_llm_user_content_includes_modeling_mode_suffix() -> None:
     m = MagicMock(spec=BaseChatModel)
     m.bind_tools = lambda *a, **k: m

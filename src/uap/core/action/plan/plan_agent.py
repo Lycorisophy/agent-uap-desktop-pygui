@@ -32,6 +32,11 @@ def _intent_scene_block(extra: dict | None) -> str:
     mr = str(ex.get("modeling_mode_requested") or "").strip()
     mu = str(ex.get("modeling_mode_used") or "").strip()
     parts: list[str] = []
+    if ex.get("scheduled_task_mode"):
+        parts.append(
+            "- **当前为定时任务辅助模式（scheduled）**：调度器触发、无用户在线；"
+            "不可用追问与人机确认；勿依赖对话态 DST 聚合。"
+        )
     if ex.get("deep_search_cot_mode"):
         parts.append("- 本轮建模模式: **深度搜索 + 显式思维链**（规划步骤说明须写清依据；执行中需要外部事实时多用 web_search）")
     if mr:

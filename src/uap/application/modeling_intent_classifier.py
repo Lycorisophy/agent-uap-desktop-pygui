@@ -27,6 +27,8 @@ _VALID_INTENTS = frozenset(
     }
 )
 
+_VALID_SCHEDULED_NEXT = frozenset({"prediction", "react", "plan", "none"})
+
 
 def _keyword_intent_fallback(query: str) -> str:
     q = (query or "").lower()
@@ -87,6 +89,13 @@ def format_execution_mode_hint(mode_requested: str | None) -> str:
             "除下方规定的 JSON 字段外，**必须**输出 `read_only_fit`（布尔）："
             "为 `true` 表示用户诉求**主要**可通过检索与阅读满足；"
             "为 `false` 表示明显需要改模型、写文件、跑数据处理等（助手仍只能以文字说明局限）。"
+        )
+    if m == "scheduled":
+        return (
+            "当前为 **scheduled（定时任务辅助模式）**：**非**用户主对话建模入口；由调度器触发，"
+            "无用户在旁、**不可用**对话态 DST 聚合与人机确认（HITL）。"
+            "请结合下方片段判断意图与场景，并在 JSON 中**必须**输出 `scheduled_next`（见模板），"
+            "用于系统选择本轮执行：仅预测、ReAct、Plan，或 `none`。"
         )
     return f"用户请求模式：**{m}**（请结合对话判断意图与场景）。"
 
@@ -195,6 +204,15 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _is_scheduled_mode(mode_requested: str | None) -> bool:
+    return str(mode_requested or "").strip().lower() == "scheduled"
+
+
+def _normalize_scheduled_next(raw: Any, fallback: str = "prediction") -> str:
+    s = (str(raw) if raw is not None else "").strip().lower()
+    return s if s in _VALID_SCHEDULED_NEXT else fallback
+
+
 def classify_intent_scene(
     cfg: UapConfig,
     dialogue_text: str,
@@ -204,15 +222,24 @@ def classify_intent_scene(
 ) -> dict[str, Any]:
     """
     调用分类模型，返回 ``classified_intent``、``classified_scene``，可选 ``classified_read_only_fit``。
+    定时任务模式（``mode_requested=scheduled``）时另含 ``classified_scheduled_next``。
     解析失败时用关键词回退 intent，scene 为 ``general``。
     """
     fb_intent = _keyword_intent_fallback(current_user_line)
-    if not (dialogue_text or "").strip():
-        return {
+    scheduled = _is_scheduled_mode(mode_requested)
+
+    def _empty_out() -> dict[str, Any]:
+        out: dict[str, Any] = {
             "classified_intent": fb_intent,
             "classified_scene": "general",
             "classified_read_only_fit": None,
         }
+        if scheduled:
+            out["classified_scheduled_next"] = "prediction"
+        return out
+
+    if not (dialogue_text or "").strip():
+        return _empty_out()
 
     llm_cfg = effective_classifier_llm(cfg)
     try:
@@ -228,11 +255,7 @@ def classify_intent_scene(
         obj = _extract_json_object(str(text))
         if not obj:
             _LOG.debug("[IntentClassifier] JSON parse failed, snippet=%r", text[:400])
-            return {
-                "classified_intent": fb_intent,
-                "classified_scene": "general",
-                "classified_read_only_fit": None,
-            }
+            return _empty_out()
         raw_intent = (obj.get("intent") or "").strip().lower()
         intent = raw_intent if raw_intent in _VALID_INTENTS else fb_intent
         scene = (obj.get("scene") or "").strip() or "general"
@@ -246,14 +269,14 @@ def classify_intent_scene(
         rof = obj.get("read_only_fit")
         if isinstance(rof, bool):
             out["classified_read_only_fit"] = rof
+        if scheduled:
+            out["classified_scheduled_next"] = _normalize_scheduled_next(
+                obj.get("scheduled_next"), fallback="prediction"
+            )
         return out
     except Exception:
         _LOG.exception("[IntentClassifier] invoke failed")
-        return {
-            "classified_intent": fb_intent,
-            "classified_scene": "general",
-            "classified_read_only_fit": None,
-        }
+        return _empty_out()
 
 
 def run_modeling_intent_scene_if_enabled(

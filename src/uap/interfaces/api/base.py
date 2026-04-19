@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -125,15 +126,56 @@ class UAPApiBase:
                 print(f"Project not found: {project_id}")
                 return
 
-            result = self.prediction_service.run_prediction(
-                project,
-                project.prediction_config,
+            trigger_line = (
+                f"[定时任务触发] 项目「{project.name or project_id}」按计划执行辅助检查；"
+                "无用户在线，请结合项目模型与配置选择后续动作（预测 / ReAct / Plan / 跳过）。"
+            )
+            flow = self.project_service.run_scheduled_auxiliary_flow(
+                project_id,
+                trigger_line,
+                self.prediction_service,
             )
 
-            self.project_store.save_prediction_result(project_id, result)
+            if not flow.get("ok"):
+                _LOG.warning(
+                    "Scheduled task flow failed project=%s err=%s",
+                    project_id,
+                    flow.get("error"),
+                )
+                return
 
-            project.last_prediction_at = result.created_at
-            self.project_store.save_project(project)
+            branch = str(flow.get("branch") or "").strip().lower()
+            if branch == "none":
+                _LOG.info(
+                    "Scheduled task skipped (none) project=%s intent=%s",
+                    project_id,
+                    (flow.get("intent_scene") or {}).get("classified_intent"),
+                )
+                return
+
+            if branch == "prediction":
+                pred_res = flow.get("prediction_result")
+                if pred_res is None:
+                    _LOG.warning("Scheduled prediction branch missing result project=%s", project_id)
+                    return
+                self.project_store.save_prediction_result(project_id, pred_res)
+                project = self.project_store.get_project(project_id) or project
+                project.last_prediction_at = pred_res.created_at
+                self.project_store.save_project(project)
+                return
+
+            msg = (flow.get("message") or "").strip()
+            if msg:
+                msgs = self.project_store.load_messages(project_id)
+                msgs.append(
+                    {
+                        "role": "assistant",
+                        "content": f"（定时任务·{branch}）\n{msg}",
+                        "created_at": datetime.now().isoformat(),
+                    }
+                )
+                self.project_store.save_messages(project_id, msgs)
 
         except Exception as e:
+            _LOG.exception("Prediction task failed: %s", e)
             print(f"Prediction task failed: {e}")

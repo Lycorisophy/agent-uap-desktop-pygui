@@ -42,6 +42,10 @@ from uap.application.dst_pipeline import (
     pending_model_snap_key,
     pending_skill_draft_key,
 )
+from uap.application.modeling_intent_classifier import (
+    build_modeling_task_with_prior_dialogue,
+    run_modeling_intent_scene_if_enabled,
+)
 from uap.card.models import CardOption, CardPriority, CardResponse, CardType, ConfirmationCard
 from uap.react.ask_user_card import build_ask_user_confirmation_card
 from uap.react.context_helpers import format_system_model_for_prompt
@@ -1001,6 +1005,8 @@ class ProjectService:
         result = react_agent.run(user_message, context)
         _LOG.info("[Modeling/ReAct] done success=%s steps=%d", result.success, result.total_steps)
 
+        sched = bool(context.get("scheduled_task_mode"))
+
         model = self._build_model_from_dst(dst_manager, result.session_id, project.name)
         substantive = self._modeling_snapshot_substantive(model)
         business_success = self._business_modeling_success(result.success, substantive)
@@ -1086,8 +1092,9 @@ class ProjectService:
             "tool_calls": result.tool_calls,
             "stop_reason": _modeling_stop_reason(result.error_message),
         }
-        self._persist_dst_project_aggregate(project_id, dst_manager)
-        if not defer_model_confirm:
+        if not sched:
+            self._persist_dst_project_aggregate(project_id, dst_manager)
+        if not defer_model_confirm and not sched:
             sol = self._maybe_generate_skill_draft_and_request_confirmation(
                 project_id,
                 project.name,
@@ -1119,6 +1126,7 @@ class ProjectService:
         from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
         _LOG.info("[Modeling/Plan] project=%s", project_id)
+        sched = bool(context.get("scheduled_task_mode"))
         dst_manager = DstManager()
         skills_registry: dict = dict(build_modeling_atomic_registry())
         if web_search_func:
@@ -1235,8 +1243,9 @@ class ProjectService:
             "replan_count": result.replan_count,
             "stop_reason": _modeling_stop_reason(result.error_message),
         }
-        self._persist_dst_project_aggregate(project_id, dst_manager)
-        if not defer_model_confirm:
+        if not sched:
+            self._persist_dst_project_aggregate(project_id, dst_manager)
+        if not defer_model_confirm and not sched:
             sol = self._maybe_generate_skill_draft_and_request_confirmation(
                 project_id,
                 project.name,
@@ -1248,6 +1257,65 @@ class ProjectService:
             if sol:
                 out["solidified_skill"] = sol
         return out
+
+    def run_scheduled_auxiliary_flow(
+        self,
+        project_id: str,
+        trigger_user_message: str,
+        prediction_service: Any,
+        *,
+        web_search_func: Callable[..., Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        定时任务入口：意图/场景 + ``classified_scheduled_next``，再分支预测、ReAct/Plan 或跳过。
+        不写入对话历史；调用方负责持久化预测结果或按需追加助手消息。
+        """
+        msgs = self._store.load_messages(project_id)
+        intent_scene = run_modeling_intent_scene_if_enabled(
+            self._cfg,
+            msgs,
+            trigger_user_message,
+            mode_requested="scheduled",
+        )
+        nxt = str(intent_scene.get("classified_scheduled_next") or "prediction").strip().lower()
+        if nxt not in ("prediction", "react", "plan", "none"):
+            nxt = "prediction"
+
+        out_base: dict[str, Any] = {
+            "ok": True,
+            "intent_scene": intent_scene,
+            "scheduled_next": nxt,
+        }
+
+        if nxt == "none":
+            out_base["branch"] = "none"
+            return out_base
+
+        if nxt == "prediction":
+            proj = self._store.get_project(project_id)
+            if not proj:
+                return {"ok": False, "error": "项目不存在", "scheduled_next": nxt}
+            result = prediction_service.run_prediction(proj, proj.prediction_config)
+            out_base["branch"] = "prediction"
+            out_base["prediction_result"] = result
+            return out_base
+
+        task_agent = build_modeling_task_with_prior_dialogue(msgs, trigger_user_message)
+        modeling_out = self.react_modeling(
+            project_id,
+            task_agent,
+            card_manager=None,
+            web_search_func=web_search_func,
+            mode=nxt,
+            intent_scene=intent_scene,
+            original_user_message=trigger_user_message,
+            scheduled_task_mode=True,
+        )
+        merged: dict[str, Any] = {**out_base, **modeling_out}
+        merged["branch"] = nxt
+        merged["intent_scene"] = intent_scene
+        merged["scheduled_next"] = nxt
+        return merged
 
     def react_modeling(
         self,
@@ -1261,6 +1329,7 @@ class ProjectService:
         on_llm_token: Optional[Callable[[str], None]] = None,
         interrupt_handles: dict | None = None,
         deep_search_cot_mode: bool = False,
+        scheduled_task_mode: bool = False,
     ) -> dict:
         """
         **RADH 智能建模主入口**：支持 ``react`` / ``plan`` / ``auto`` / ``ask``（``ask``=只读安全技能 ReAct）。
@@ -1270,14 +1339,20 @@ class ProjectService:
             original_user_message: 若 ``user_message`` 含拼接的历史对话，Auto 模式分类时用此原始句。
             on_llm_token: 可选；ReAct ``decide`` 中 LLM 流式输出时按文本片段回调（用于前端轮询拉流）。
             deep_search_cot_mode: 为真时注入 ``context["deep_search_cot_mode"]``，启用更深检索与显式思维链提示。
+            scheduled_task_mode: 定时任务辅助模式：不注入项目 DST 聚合摘要、不持久化 DST 聚合、不挂卡片（HITL）。
 
         解析模式后会在 ``context`` 中写入 ``modeling_mode_requested``（``react``/``plan``/``auto``）
         与 ``modeling_mode_used``（本轮实际 ``react`` 或 ``plan``），供 ReAct/Plan 主提示与意图分类使用。
         """
         try:
+            if scheduled_task_mode:
+                card_manager = None
             project = self._store.get_project(project_id)
             chat_model = create_langchain_chat_model(self._cfg.llm)
             context = self._modeling_context_dict(project_id, project)
+            if scheduled_task_mode:
+                context["scheduled_task_mode"] = True
+                context.pop("project_dst_aggregate_hint", None)
             if intent_scene:
                 context.update(intent_scene)
             if on_llm_token is not None:
