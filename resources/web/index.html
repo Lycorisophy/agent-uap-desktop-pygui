@@ -41,8 +41,9 @@
             <div class="sidebar-footer">
                 <div class="scheduler-status" id="schedulerStatus">
                     <span class="status-indicator"></span>
-                    <span>调度器运行中</span>
+                    <span id="schedulerStatusLine">调度器 …</span>
                 </div>
+                <div class="memory-footnote" id="memoryStatusLine"></div>
             </div>
         </aside>
         <!-- 主内容区 -->
@@ -319,9 +320,13 @@
                     <div class="kb-toolbar">
                         <button class="btn btn-secondary" id="kbRefreshBtn">刷新状态</button>
                         <button class="btn btn-primary" id="kbImportBtn">选择文件并导入</button>
+                        <button class="btn btn-secondary" id="kbMemoryExtractBtn" title="将未处理 Episode 写入向量库">Episode→向量库</button>
                     </div>
                     <div class="kb-status" id="kbStatus">
                         <p class="placeholder">请选择项目后点击「刷新状态」</p>
+                    </div>
+                    <div class="kb-memory-status" id="kbMemoryDetail">
+                        <p class="placeholder">记忆与定时任务摘要将在选择项目后显示</p>
                     </div>
                     <div class="kb-search-block">
                         <h3>检索试用</h3>

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from uap.interfaces.api._log import _LOG
 
 
@@ -79,3 +82,42 @@ class KnowledgeApiMixin:
         except Exception as e:
             _LOG.exception("[KB] pick_file")
             return {"success": False, "error": str(e)}
+
+    def get_memory_status(self, project_id: str) -> dict:
+        """合并知识库状态、Episode 统计与最近一次定时辅助任务日志（供 UI）。"""
+        try:
+            if not self._require_project(project_id):
+                return {"ok": False, "error": "项目不存在"}
+            kb = self.knowledge_base_status(project_id)
+            am_stats: dict = {"ok": False, "enabled": False}
+            if getattr(self, "agent_memory", None) is not None:
+                am_stats = self.agent_memory.stats(project_id)
+            log_path = Path(self.project_store.root) / project_id / "auxiliary_schedule_log.json"
+            aux: dict | None = None
+            if log_path.is_file():
+                try:
+                    aux = json.loads(log_path.read_text(encoding="utf-8"))
+                except Exception:
+                    aux = None
+            return {
+                "ok": True,
+                "knowledge": kb,
+                "agent_memory": am_stats,
+                "auxiliary_schedule_log": aux,
+            }
+        except Exception as e:
+            _LOG.exception("[Memory] status")
+            return {"ok": False, "error": str(e)}
+
+    def run_memory_extraction(self, project_id: str) -> dict:
+        """将未处理 Episode 写入项目向量库（与文档共用 collection）。"""
+        try:
+            if not self._require_project(project_id):
+                return {"ok": False, "error": "项目不存在"}
+            svc = getattr(self, "memory_extraction_service", None)
+            if svc is None:
+                return {"ok": False, "error": "memory_extraction_unavailable"}
+            return svc.process_unprocessed(project_id)
+        except Exception as e:
+            _LOG.exception("[Memory] extraction")
+            return {"ok": False, "error": str(e)}

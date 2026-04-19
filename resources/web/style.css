@@ -129,6 +129,47 @@ body {
     animation: pulse 2s infinite;
 }
 
+.status-indicator.offline {
+    background: var(--text-muted);
+    animation: none;
+}
+
+.memory-footnote {
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-muted);
+    word-break: break-word;
+}
+
+.kb-memory-status {
+    margin: 12px 0;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.status-indicator.offline {
+    background: var(--text-muted);
+    animation: none;
+}
+
+.memory-footnote {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.kb-memory-status {
+    margin: 12px 0;
+    padding: 10px;
+    background: var(--bg-secondary, rgba(0, 0, 0, 0.15));
+    border-radius: 6px;
+    font-size: 13px;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }

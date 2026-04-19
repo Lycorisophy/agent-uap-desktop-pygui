@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+from uap.application.memory_extraction_service import MemoryExtractionService
+from uap.core.memory.agent_memory_persistence import AgentMemoryPersistence, agent_memory_db_path
 
 from uap.card.models import CardResponse, CardType
 from uap.config import load_config, UAPConfig
@@ -47,6 +51,10 @@ class UAPApiBase:
 
         self.atomic_skills = get_atomic_skills_library()
         self.knowledge_service = ProjectKnowledgeService(self.config)
+        self.agent_memory = AgentMemoryPersistence(agent_memory_db_path(projects_root))
+        self.memory_extraction_service = MemoryExtractionService(
+            self.agent_memory, self.knowledge_service
+        )
         self._modeling_stream_hub = ModelingStreamHub()
 
         self.card_manager.register_callback(
@@ -119,6 +127,25 @@ class UAPApiBase:
 
         return scheduler
 
+    def _write_auxiliary_schedule_log(self, project_id: str, flow: dict[str, Any]) -> None:
+        """供前端展示最近一次定时辅助任务分支与意图（落盘于项目目录）。"""
+        try:
+            p = Path(self.project_store.root) / project_id / "auxiliary_schedule_log.json"
+            payload = {
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "branch": flow.get("branch"),
+                "scheduled_next": flow.get("scheduled_next"),
+                "intent_scene": flow.get("intent_scene"),
+                "ok": bool(flow.get("ok")),
+            }
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            _LOG.debug("auxiliary_schedule_log: %s", e)
+
     def _on_prediction_task(self, project_id: str):
         try:
             project = self.project_store.get_project(project_id)
@@ -143,6 +170,8 @@ class UAPApiBase:
                     flow.get("error"),
                 )
                 return
+
+            self._write_auxiliary_schedule_log(project_id, flow)
 
             branch = str(flow.get("branch") or "").strip().lower()
             if branch == "none":

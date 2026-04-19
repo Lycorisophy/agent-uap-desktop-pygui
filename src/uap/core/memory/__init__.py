@@ -1,5 +1,6 @@
 """核心服务：记忆与 RAG（项目知识库 + 向量检索）。"""
 
+from uap.core.memory.agent_memory_persistence import AgentMemoryPersistence, agent_memory_db_path
 from uap.core.memory.knowledge import ProjectKnowledgeService
 from uap.core.memory.vector import (
     EmbeddingService,
@@ -14,6 +15,8 @@ from uap.core.memory.vector import (
 )
 
 __all__ = [
+    "AgentMemoryPersistence",
+    "agent_memory_db_path",
     "ProjectKnowledgeService",
     "EmbeddingService",
     "RAGContext",

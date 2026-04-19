@@ -418,3 +418,57 @@ class ProjectKnowledgeService:
                     }
                 )
         return {"ok": True, "hits": hits}
+
+    def ingest_snippets(
+        self, project_id: str, snippets: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        将若干文本片段写入当前项目 collection（与文件导入共用 schema）。
+
+        ``snippets`` 每项含 ``text``、``source_name``（≤512）；用于记忆抽取等。
+        """
+        rows_in = [x for x in (snippets or []) if isinstance(x, dict)]
+        if not rows_in:
+            return {"ok": True, "chunks": 0}
+
+        ens = self.ensure_collection(project_id)
+        if not ens.get("ok"):
+            return {"ok": False, "error": ens.get("error") or "知识库不可用", "chunks": 0}
+        name = collection_name(project_id)
+        try:
+            cli = self._get_client()
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e), "chunks": 0}
+
+        rows: list[dict[str, Any]] = []
+        row_idx = 0
+        for sn in rows_in:
+            raw = (sn.get("text") or "").strip()
+            if not raw:
+                continue
+            src = (sn.get("source_name") or "agent_mem|snippet")[:512]
+            chunks = _chunk_text(raw)
+            for ch in chunks:
+                vec = self._embed(ch)
+                piece = ch[:TEXT_MAX_LEN]
+                rows.append(
+                    {
+                        "project_id": project_id,
+                        "source_name": f"{src}|c{row_idx}"[:512],
+                        "chunk_index": row_idx,
+                        "text": piece,
+                        "vector": vec,
+                    }
+                )
+                row_idx += 1
+
+        if not rows:
+            return {"ok": True, "chunks": 0}
+
+        cli.insert(collection_name=name, data=rows)
+        try:
+            cli.flush(name)
+        except Exception:
+            _LOG.debug("flush optional after ingest_snippets")
+
+        return {"ok": True, "chunks": len(rows), "collection": name}

@@ -1,7 +1,7 @@
 """
 Ask 模式（只读安全 ReAct）技能白名单。
 
-仅注册检索/阅读类工具：``web_search``、``search_knowledge``、``file_access``；
+仅注册检索/阅读类工具：``web_search``、``search_knowledge``、``memory_search``、``file_access``；
 不包含数据原子技能、建模 harness、win11 写文件、Windows CLI 等。
 """
 
@@ -23,6 +23,7 @@ def build_ask_mode_skills_registry(
     create_file_access_skill: Callable[..., Any],
     create_web_search_skill: Callable[..., Any],
     create_search_knowledge_skill: Callable[..., Any],
+    create_memory_search_skill: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """
     构造仅含只读/搜索类技能的注册表（skill_id → AtomicSkill）。
@@ -37,6 +38,10 @@ def build_ask_mode_skills_registry(
         skills_registry["search_knowledge"] = create_search_knowledge_skill(
             project_id, knowledge
         )
+        if create_memory_search_skill is not None:
+            skills_registry["memory_search"] = create_memory_search_skill(
+                project_id, knowledge
+            )
 
     _LOG.debug(
         "[AskMode] registry keys=%s",

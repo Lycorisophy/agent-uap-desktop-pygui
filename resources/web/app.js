@@ -81,6 +81,7 @@ window.uapAPI = {
             renderModelPreview(project.model);
             void loadModelEditorFromApi();
         }
+        void refreshSidebarFooterStatus();
         showToast('项目已加载', 'success');
     },
     
@@ -323,9 +324,38 @@ async function initializeApp() {
     if (apiReady && isPywebviewApiCallable()) {
         window.__uapDataBootstrapDone = true;
         console.log('[UAP] initialized, projects=', state.projects.length);
+        void refreshSidebarFooterStatus();
+        setInterval(() => { void refreshSidebarFooterStatus(); }, 30000);
     } else {
         console.warn('[UAP] initialized before _createApi 完成; projects=', state.projects.length);
         scheduleDeferredProjectAndSettingsLoad();
+    }
+}
+
+async function refreshSidebarFooterStatus() {
+    if (!isPywebviewApiCallable()) return;
+    const line = document.getElementById('schedulerStatusLine');
+    const ind = document.querySelector('#schedulerStatus .status-indicator');
+    const mem = document.getElementById('memoryStatusLine');
+    try {
+        const st = await window.pywebview.api.get_scheduler_status();
+        const run = st && st.running !== false;
+        if (line) {
+            const n = st && st.total_tasks != null ? st.total_tasks : '—';
+            line.textContent = run ? `调度器运行中 · 任务 ${n}` : '调度器已停止';
+        }
+        if (ind) ind.classList.toggle('offline', !run);
+        if (mem && state.currentProject) {
+            const ms = await window.pywebview.api.get_memory_status(state.currentProject.id);
+            const aux = ms.auxiliary_schedule_log;
+            const sn = aux && aux.scheduled_next ? aux.scheduled_next : '—';
+            const br = aux && aux.branch ? aux.branch : '—';
+            mem.textContent = `记忆：上次定时分支 ${br} · scheduled_next ${sn}`;
+        } else if (mem) {
+            mem.textContent = '';
+        }
+    } catch (e) {
+        console.warn('[UAP] refreshSidebarFooterStatus', e);
     }
 }
 
@@ -359,6 +389,7 @@ function switchView(viewName) {
     }
     if (viewName === 'knowledge') {
         refreshKbStatus();
+        void refreshSidebarFooterStatus();
     }
     if (viewName === 'prediction') {
         refreshPredictionPanelFromHistory();
@@ -1687,9 +1718,11 @@ function getKbProjectId() {
 async function refreshKbStatus() {
     const pid = getKbProjectId();
     const el = document.getElementById('kbStatus');
+    const memEl = document.getElementById('kbMemoryDetail');
     if (!el) return;
     if (!pid) {
         el.innerHTML = '<p class="placeholder">请先选择项目</p>';
+        if (memEl) memEl.innerHTML = '<p class="placeholder">请先选择项目</p>';
         return;
     }
     if (!isPywebviewApiCallable()) return;
@@ -1706,6 +1739,24 @@ async function refreshKbStatus() {
             <p><strong>状态</strong>：${ex}</p>
             <p><strong>条目数</strong>：${rows}</p>
         `;
+        if (memEl) {
+            try {
+                const ms = await window.pywebview.api.get_memory_status(pid);
+                const am = ms.agent_memory || {};
+                const pend = am.episode_pending != null ? am.episode_pending : '—';
+                const tot = am.episode_total != null ? am.episode_total : '—';
+                const aux = ms.auxiliary_schedule_log;
+                const auxLine = aux
+                    ? `上次定时：branch=${escapeHtml(String(aux.branch || '—'))} · scheduled_next=${escapeHtml(String(aux.scheduled_next || '—'))}`
+                    : '尚无定时辅助任务记录';
+                memEl.innerHTML = `
+                    <p><strong>Episode</strong>：共 ${tot} 条，待写入向量 ${pend} 条</p>
+                    <p class="hint">${auxLine}</p>
+                `;
+            } catch (e2) {
+                memEl.innerHTML = `<p class="error-text">${escapeHtml(String(e2))}</p>`;
+            }
+        }
     } catch (e) {
         el.innerHTML = `<p class="error-text">${escapeHtml(String(e))}</p>`;
     }
@@ -1733,6 +1784,27 @@ async function kbPickAndImport() {
             await refreshKbStatus();
         } else {
             showToast(r.error || '导入失败', 'error');
+        }
+    } catch (e) {
+        showToast(String(e), 'error');
+    }
+}
+
+async function kbRunMemoryExtraction() {
+    const pid = getKbProjectId();
+    if (!pid) {
+        showToast('请先选择项目', 'warning');
+        return;
+    }
+    if (!isPywebviewApiCallable()) return;
+    try {
+        showToast('正在写入向量库…', 'info');
+        const r = await window.pywebview.api.run_memory_extraction(pid);
+        if (r.ok) {
+            showToast(`已处理 ${r.processed || 0} 条 Episode，写入 ${r.chunks || 0} 个向量分块`, 'success');
+            await refreshKbStatus();
+        } else {
+            showToast(r.error || '写入失败', 'error');
         }
     } catch (e) {
         showToast(String(e), 'error');
@@ -1778,6 +1850,7 @@ async function kbRunSearch() {
 function bindKnowledgeEvents() {
     document.getElementById('kbRefreshBtn')?.addEventListener('click', () => refreshKbStatus());
     document.getElementById('kbImportBtn')?.addEventListener('click', () => kbPickAndImport());
+    document.getElementById('kbMemoryExtractBtn')?.addEventListener('click', () => kbRunMemoryExtraction());
     document.getElementById('kbSearchBtn')?.addEventListener('click', () => kbRunSearch());
     document.getElementById('kbProjectSelect')?.addEventListener('change', () => refreshKbStatus());
 }

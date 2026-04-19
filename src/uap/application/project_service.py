@@ -931,7 +931,10 @@ class ProjectService:
             create_web_search_skill,
         )
         from uap.react.file_access_skill import create_file_access_skill
-        from uap.react.project_kb_skill import create_search_knowledge_skill
+        from uap.react.project_kb_skill import (
+            create_memory_search_skill,
+            create_search_knowledge_skill,
+        )
         from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
         _LOG.info("[Modeling/ReAct] project=%s msg=%s", project_id, user_message[:50])
@@ -957,6 +960,7 @@ class ProjectService:
                 create_file_access_skill=create_file_access_skill,
                 create_web_search_skill=create_web_search_skill,
                 create_search_knowledge_skill=create_search_knowledge_skill,
+                create_memory_search_skill=create_memory_search_skill,
             )
         else:
             skills_registry = dict(build_modeling_atomic_registry())
@@ -982,6 +986,9 @@ class ProjectService:
 
             if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
                 skills_registry["search_knowledge"] = create_search_knowledge_skill(
+                    project_id, self._knowledge
+                )
+                skills_registry["memory_search"] = create_memory_search_skill(
                     project_id, self._knowledge
                 )
 
@@ -1122,7 +1129,10 @@ class ProjectService:
         from uap.plan import PlanAgent
         from uap.react import DstManager, ReactCardIntegration, create_web_search_skill
         from uap.react.file_access_skill import create_file_access_skill
-        from uap.react.project_kb_skill import create_search_knowledge_skill
+        from uap.react.project_kb_skill import (
+            create_memory_search_skill,
+            create_search_knowledge_skill,
+        )
         from uap.skill.atomic_implemented import build_modeling_atomic_registry
 
         _LOG.info("[Modeling/Plan] project=%s", project_id)
@@ -1157,6 +1167,9 @@ class ProjectService:
 
         if getattr(self._cfg.agent, "modeling_kb_tool_enabled", True):
             skills_registry["search_knowledge"] = create_search_knowledge_skill(
+                project_id, self._knowledge
+            )
+            skills_registry["memory_search"] = create_memory_search_skill(
                 project_id, self._knowledge
             )
 

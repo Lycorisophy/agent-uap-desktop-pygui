@@ -35,7 +35,9 @@ from uap.core.action.react.file_access_skill import (
     create_external_file_access_skill,
 )
 from uap.core.action.react.project_kb_skill import (
+    MemorySearchSkill,
     SearchKnowledgeSkill,
+    create_memory_search_skill,
     create_search_knowledge_skill,
 )
 from uap.core.action.react.win11_project_fs_skills import (
@@ -108,7 +110,9 @@ __all__ = [
     "create_external_file_access_skill",
     # Project KB (Milvus)
     "SearchKnowledgeSkill",
+    "MemorySearchSkill",
     "create_search_knowledge_skill",
+    "create_memory_search_skill",
     # Project workspace FS (win11_*)
     "create_win11_project_fs_skill_bundle",
     "resolve_project_path",

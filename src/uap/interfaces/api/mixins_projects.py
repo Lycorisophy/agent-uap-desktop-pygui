@@ -344,6 +344,12 @@ class ProjectsApiMixin:
                 }
             )
             self.project_store.save_messages(project_id, messages)
+            try:
+                am = getattr(self, "agent_memory", None)
+                if am is not None and getattr(am, "enabled", False):
+                    am.insert_episode(project_id, message, source_type="chat")
+            except Exception:
+                _LOG.debug("[API] episode insert skipped", exc_info=True)
 
             return self._modeling_chat_core_body(
                 project_id, message, mode, None, deep_search_cot_mode=deep_search_cot_mode

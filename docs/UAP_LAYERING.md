@@ -39,6 +39,8 @@ contract               →  （仅标准库 / pydantic，不依赖 adapters）
 
 旧路径（如 `uap.infrastructure.llm`）在过渡期内以 **转发模块** 保留，新代码优先使用 `uap.adapters.llm`。
 
+开发与运行环境（Milvus、测试命令、记忆子系统说明）见 [`UAP_DEVELOPMENT.md`](UAP_DEVELOPMENT.md)。
+
 ## 物理目录（canonical）
 
 | 能力 | 实现位置 | 兼容入口（转发） |
