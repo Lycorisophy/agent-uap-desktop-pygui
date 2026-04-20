@@ -5,6 +5,64 @@ from __future__ import annotations
 from typing import Any
 
 
+def merge_react_extra_from_skill_result(
+    extra_context: dict[str, Any],
+    skill_id: str,
+    result: dict[str, Any] | None,
+) -> None:
+    """
+    将本轮已成功执行的结构化技能结果并入 ``extra_context["existing_model"]``，
+    并刷新 ``extra_context["system_model"]`` 摘要，使后续 ``decide`` 轮次中的
+    「当前项目已有模型摘要」与工具观察一致（避免 ``define_variable`` 已执行多
+    次仍显示「变量: （尚未定义）」）。
+    """
+    if not isinstance(extra_context, dict) or not isinstance(result, dict):
+        return
+    changed = False
+    em = extra_context.get("existing_model")
+    if em is None:
+        em = {}
+        extra_context["existing_model"] = em
+    if not isinstance(em, dict):
+        return
+
+    if skill_id == "define_variable":
+        vd = result.get("variable")
+        if isinstance(vd, dict):
+            nm = (vd.get("name") or "").strip()
+            if nm:
+                kept = [
+                    v
+                    for v in (em.get("variables") or [])
+                    if not isinstance(v, dict) or (v.get("name") or "").strip() != nm
+                ]
+                kept.append(vd)
+                em["variables"] = kept
+                changed = True
+    elif skill_id == "discover_relations":
+        rd = result.get("relation")
+        if isinstance(rd, dict):
+            rels = list(em.get("relations") or [])
+            rid = (rd.get("id") or "").strip()
+            if rid:
+                rels = [r for r in rels if not isinstance(r, dict) or (r.get("id") or "").strip() != rid]
+            rels.append(rd)
+            em["relations"] = rels
+            changed = True
+    elif skill_id == "extract_model":
+        vlist = result.get("variables")
+        rlist = result.get("relations")
+        if isinstance(vlist, list) and vlist and all(isinstance(x, dict) for x in vlist):
+            em["variables"] = list(vlist)
+            changed = True
+        if isinstance(rlist, list) and rlist and all(isinstance(x, dict) for x in rlist):
+            em["relations"] = list(rlist)
+            changed = True
+
+    if changed:
+        extra_context["system_model"] = format_system_model_for_prompt(em)
+
+
 def format_system_model_for_prompt(
     model: Any,
     *,

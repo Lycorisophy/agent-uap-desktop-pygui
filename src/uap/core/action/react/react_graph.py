@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from functools import reduce
@@ -11,6 +12,7 @@ from typing import Any, TypedDict
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.graph import END, START, StateGraph
 
+from uap.core.action.react.context_helpers import merge_react_extra_from_skill_result
 from uap.core.action.react.react_agent import ReactAgent, ReactStep
 from uap.infrastructure.modeling_stream_hub import (
     USER_HARD_STOP,
@@ -466,7 +468,7 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
                 "pending_text": None,
             }
 
-        obs, is_error, err_msg = agent._execute_skill(action, action_input)
+        obs, is_error, err_msg, skill_raw = agent._execute_skill(action, action_input)
         duration_ms = int((time.perf_counter() - step_start) * 1000)
 
         step = ReactStep(
@@ -500,6 +502,22 @@ def compile_react_graph(agent: ReactAgent, lc_tools: list) -> Any:
             "pending_native": None,
             "pending_text": None,
         }
+        if (
+            not is_error
+            and isinstance(extra_act, dict)
+            and action in ("define_variable", "discover_relations", "extract_model")
+            and isinstance(skill_raw, dict)
+        ):
+            # 禁止 deepcopy 整个 extra_context：其中常有 _interrupt/_on_llm_token 等
+            # 不可 pickle 对象（含 _thread.lock），会导致「cannot pickle '_thread.lock'」。
+            extra_out = dict(extra_act)
+            em0 = extra_act.get("existing_model")
+            if isinstance(em0, dict):
+                extra_out["existing_model"] = copy.deepcopy(em0)
+            else:
+                extra_out["existing_model"] = {}
+            merge_react_extra_from_skill_result(extra_out, action, skill_raw)
+            out["extra_context"] = extra_out
         if ip_a and ip_a[0].is_set():
             out["finished"] = True
             out["success"] = False

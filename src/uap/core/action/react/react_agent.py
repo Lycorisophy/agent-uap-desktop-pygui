@@ -769,12 +769,15 @@ class ReactAgent:
 
         return result
 
-    def _execute_skill(self, skill_id: str, params: dict) -> tuple[str, bool, Optional[str]]:
+    def _execute_skill(
+        self, skill_id: str, params: dict
+    ) -> tuple[str, bool, Optional[str], Optional[dict]]:
         """
         **技能与工具执行层**（统一入口）：校验 schema → 调用 ``AtomicSkill.execute``。
 
         Returns:
-            (observation, is_error, error_message) —— observation 将回到下一轮 **上下文工程**。
+            (observation, is_error, error_message, result_dict_or_none)。
+            最后一项在成功且 ``execute`` 返回 ``dict`` 时为原字典，供编排层刷新会话内模型摘要。
         """
         _LOG.info("[ReActAgent] Executing skill: %s with params: %s", skill_id, params)
 
@@ -789,26 +792,26 @@ class ReactAgent:
                 return (
                     "定时任务模式下禁止使用 ask_user（无用户在线）。请改用 FINAL_ANSWER "
                     "总结已知信息与局限，勿暂停等待输入。"
-                ), True, "scheduled_task_no_hitl"
+                ), True, "scheduled_task_no_hitl", None
             q = params.get("question") or params.get("raw") or str(params)
             return (
                 "（已向用户展示上述追问；请用户在下一条消息中直接回复或选择选项，"
                 "本轮对话已暂停等待输入。）\n"
                 f"（追问用户）{q}"
-            ), False, None
+            ), False, None, None
 
         skill = self.skills.get(skill_id)
         if not skill:
-            return f"技能 '{skill_id}' 不存在", True, f"Unknown skill: {skill_id}"
+            return f"技能 '{skill_id}' 不存在", True, f"Unknown skill: {skill_id}", None
 
         if skill.metadata.requires_confirmation:
             _LOG.info("[ReActAgent] Skill %s requires confirmation", skill_id)
-            return f"技能 '{skill_id}' 需要用户确认后才能执行", False, None
+            return f"技能 '{skill_id}' 需要用户确认后才能执行", False, None, None
 
         try:
             valid, errors = skill.validate_input(**params)
             if not valid:
-                return f"参数验证失败: {', '.join(errors)}", True, "; ".join(errors)
+                return f"参数验证失败: {', '.join(errors)}", True, "; ".join(errors), None
 
             result = skill.execute(**params)
 
@@ -818,7 +821,7 @@ class ReactAgent:
                 is_err = bool(result.get("is_error"))
                 err_msg = result.get("error_message")
                 if err_val and not obs:
-                    return str(err_val), True, str(err_val)
+                    return str(err_val), True, str(err_val), None
                 if not isinstance(obs, str):
                     obs = str(obs)
                 if is_err or err_val:
@@ -827,13 +830,13 @@ class ReactAgent:
                         skill_id,
                         len(obs),
                     )
-                    return obs, True, str(err_msg or err_val or "tool_error")
+                    return obs, True, str(err_msg or err_val or "tool_error"), None
                 _LOG.info(
                     "[ReActAgent] Skill %s executed successfully, result_len=%d",
                     skill_id,
                     len(obs),
                 )
-                return obs, False, None
+                return obs, False, None, result
             obs = str(result)
 
             _LOG.info(
@@ -842,11 +845,11 @@ class ReactAgent:
                 len(obs),
             )
 
-            return obs, False, None
+            return obs, False, None, None
 
         except Exception as e:
             _LOG.exception("[ReActAgent] Skill %s execution failed", skill_id)
-            return f"执行失败: {str(e)}", True, str(e)
+            return f"执行失败: {str(e)}", True, str(e), None
 
     def get_skill(self, skill_id: str) -> Optional[AtomicSkill]:
         """获取技能"""

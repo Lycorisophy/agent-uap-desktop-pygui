@@ -9,6 +9,10 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 from uap.config import ContextCompressionConfig, LLMConfig
 from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
 from uap.infrastructure.modeling_stream_hub import ModelingStreamHub
+from uap.react.context_helpers import (
+    format_system_model_for_prompt,
+    merge_react_extra_from_skill_result,
+)
 from uap.react.dst_manager import DstManager
 from uap.react.lc_tools import atomic_skills_to_lc_tools
 from uap.react.react_agent import ReactAgent, ReactStep
@@ -123,10 +127,43 @@ def test_execute_skill_rejects_ask_user_in_scheduled_mode() -> None:
         compression_config=ContextCompressionConfig(enabled=False),
     )
     agent._harness_context = {"scheduled_task_mode": True}
-    obs, is_err, err = agent._execute_skill("ask_user", {"question": "?"})
+    obs, is_err, err, _raw = agent._execute_skill("ask_user", {"question": "?"})
     assert is_err is True
     assert err == "scheduled_task_no_hitl"
     assert "定时任务" in obs
+
+
+def test_merge_react_extra_updates_system_model_summary() -> None:
+    """define_variable 合并后应刷新 system_model 文本，避免仍显示「尚未定义」。"""
+    extra: dict = {
+        "existing_model": {
+            "name": "测试模型",
+            "description": "",
+            "confidence": 0.0,
+            "variables": [],
+            "relations": [],
+            "constraints": [],
+        },
+        "system_model": "",
+    }
+    extra["system_model"] = format_system_model_for_prompt(extra["existing_model"])
+    assert "尚未定义" in extra["system_model"]
+
+    merge_react_extra_from_skill_result(
+        extra,
+        "define_variable",
+        {
+            "variable": {
+                "name": "气温",
+                "value_type": "float",
+                "description": "日平均气温",
+                "unit": "℃",
+            }
+        },
+    )
+    assert "气温" in extra["system_model"]
+    assert "尚未定义" not in extra["system_model"]
+    assert any((v.get("name") == "气温") for v in (extra["existing_model"].get("variables") or []))
 
 
 def test_build_llm_user_content_includes_modeling_mode_suffix() -> None:

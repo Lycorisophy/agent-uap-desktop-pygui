@@ -149,7 +149,7 @@ def test_react_execute_skill_preserves_observation_on_is_error() -> None:
             }
 
     agent.skills["t"] = _Sk()
-    obs, is_err, em = agent._execute_skill("t", {})
+    obs, is_err, em, _raw = agent._execute_skill("t", {})
     assert obs == "BODY"
     assert is_err is True
     assert em == "exit 1"
