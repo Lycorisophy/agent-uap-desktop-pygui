@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -64,6 +65,11 @@ class EmbeddingConfig(BaseModel):
     )
 
 
+def _default_milvus_backend() -> str:
+    """Windows 无 milvus-lite 官方轮子，默认本机 SQLite 向量库；其它平台默认 Lite 文件。"""
+    return "sqlite_vec" if sys.platform == "win32" else "lite"
+
+
 class StorageConfig(BaseModel):
     """存储配置"""
 
@@ -71,7 +77,12 @@ class StorageConfig(BaseModel):
 
     projects_root: str = ""
     milvus_lite_path: str = ""
-    milvus_backend: Literal["lite", "standalone"] = "lite"
+    milvus_backend: Literal["lite", "standalone", "sqlite_vec"] = Field(
+        default_factory=_default_milvus_backend,
+        description="lite：本地 Milvus Lite；standalone：外置 Milvus；sqlite_vec：本机 SQLite 向量（免 Milvus）",
+    )
+    #: SQLite 向量库文件路径；空则 ~/.uap/kb_vec.sqlite
+    sqlite_vec_path: str = ""
     milvus_use_tls: bool = False
     milvus_token: str = ""
 
@@ -120,6 +131,8 @@ class StorageConfig(BaseModel):
                 out["milvus_use_tls"] = nest["use_tls"]
             if "token" in nest:
                 out["milvus_token"] = nest["token"]
+            if "sqlite_vec_path" in nest:
+                out["sqlite_vec_path"] = nest["sqlite_vec_path"]
         return out
 
 

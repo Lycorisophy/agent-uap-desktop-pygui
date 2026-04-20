@@ -23,7 +23,7 @@ from uap.scheduler import TaskScheduler, SchedulerConfig
 from uap.card import CardManager, CardGenerator
 from uap.card.persistence import CardPersistence
 from uap.skill import get_atomic_skills_library
-from uap.infrastructure.knowledge import ProjectKnowledgeService
+from uap.infrastructure.knowledge import create_project_knowledge_service
 from uap.infrastructure.modeling_stream_hub import ModelingStreamHub
 
 _LOG = logging.getLogger("uap.api.base")
@@ -50,7 +50,7 @@ class UAPApiBase:
         self.card_generator = CardGenerator()
 
         self.atomic_skills = get_atomic_skills_library()
-        self.knowledge_service = ProjectKnowledgeService(self.config)
+        self.knowledge_service = create_project_knowledge_service(self.config)
         self.agent_memory = AgentMemoryPersistence(agent_memory_db_path(projects_root))
         self.memory_extraction_service = MemoryExtractionService(
             self.agent_memory, self.knowledge_service

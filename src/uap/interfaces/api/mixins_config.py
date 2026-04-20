@@ -86,12 +86,13 @@ class ConfigApiMixin:
             "config_path": str(override_path),
         }
         _LOG.info(
-            "[API] get_config: return prediction freq=%s horizon=%s api_key_set=%s milvus_backend=%s milvus_lite_path=%s",
+            "[API] get_config: return prediction freq=%s horizon=%s api_key_set=%s milvus_backend=%s milvus_lite_path=%s sqlite_vec_path=%s",
             pred.default_frequency_sec,
             pred.default_horizon_sec,
             llm_dump.get("api_key_set"),
             self.config.storage.milvus_backend,
             (self.config.storage.milvus_lite_path or "")[:80] or "(empty)",
+            (self.config.storage.sqlite_vec_path or "")[:80] or "(empty)",
         )
         return payload
 

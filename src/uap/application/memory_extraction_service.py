@@ -1,5 +1,5 @@
 """
-将未处理 Episode 写入项目 Milvus（与文档知识库同 collection，source_name 区分）。
+将未处理 Episode 写入项目向量知识库（Milvus 或 SQLite，与文档块共用 source_name 区分）。
 
 后续可替换为 LLM 结构化抽取（事件/关系/事实）再入库。
 """
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from uap.core.memory.agent_memory_persistence import AgentMemoryPersistence
     from uap.core.memory.knowledge.milvus_project_kb import ProjectKnowledgeService
+    from uap.core.memory.knowledge.sqlite_vec_project_kb import SqliteVecProjectKnowledgeService
 
 _LOG = logging.getLogger("uap.memory_extraction")
 
@@ -20,7 +21,7 @@ class MemoryExtractionService:
     def __init__(
         self,
         persistence: Optional["AgentMemoryPersistence"],
-        knowledge: "ProjectKnowledgeService",
+        knowledge: "ProjectKnowledgeService | SqliteVecProjectKnowledgeService",
         *,
         extractor_version: str = "1",
     ) -> None:

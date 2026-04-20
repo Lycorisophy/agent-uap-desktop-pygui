@@ -21,7 +21,8 @@ const state = {
         embedBaseUrl: '',
         embedDimension: 4096,
         milvusLitePath: '',
-        milvusBackend: 'lite',
+        sqliteVecPath: '',
+        milvusBackend: 'sqlite_vec',
         milvusHost: 'localhost',
         milvusPort: 19530,
         milvusUseTls: false,
@@ -3168,14 +3169,17 @@ function applyLlmProviderPreset() {
 }
 
 function toggleMilvusBackendUI() {
-    const mode = document.getElementById('milvusBackend')?.value || 'lite';
+    const mode = document.getElementById('milvusBackend')?.value || 'sqlite_vec';
     const lite = mode === 'lite';
+    const standalone = mode === 'standalone';
+    const sqlite = mode === 'sqlite_vec';
     const rows = [
+        ['milvusSqlitePathRow', sqlite],
         ['milvusLitePathRow', lite],
-        ['milvusStandaloneHostRow', !lite],
-        ['milvusStandalonePortRow', !lite],
-        ['milvusStandaloneTlsRow', !lite],
-        ['milvusStandaloneTokenRow', !lite]
+        ['milvusStandaloneHostRow', standalone],
+        ['milvusStandalonePortRow', standalone],
+        ['milvusStandaloneTlsRow', standalone],
+        ['milvusStandaloneTokenRow', standalone]
     ];
     rows.forEach(([id, show]) => {
         const row = document.getElementById(id);
@@ -3221,7 +3225,8 @@ async function loadSettings() {
                 embedBaseUrl: emb.base_url || '',
                 embedDimension: emb.dimension != null ? emb.dimension : 4096,
                 milvusLitePath: storage.milvus_lite_path || '',
-                milvusBackend: storage.milvus_backend || 'lite',
+                sqliteVecPath: storage.sqlite_vec_path || '',
+                milvusBackend: storage.milvus_backend || 'sqlite_vec',
                 milvusHost: storage.milvus_host || 'localhost',
                 milvusPort:
                     storage.milvus_port != null ? storage.milvus_port : 19530,
@@ -3266,6 +3271,7 @@ function renderSettings() {
         ['embedBaseUrl', state.settings.embedBaseUrl],
         ['embedDimension', state.settings.embedDimension],
         ['milvusLitePath', state.settings.milvusLitePath],
+        ['sqliteVecPath', state.settings.sqliteVecPath],
         ['milvusBackend', state.settings.milvusBackend],
         ['milvusHost', state.settings.milvusHost],
         ['milvusPort', state.settings.milvusPort],
@@ -3326,7 +3332,8 @@ async function saveSettings() {
         dimension: parseInt(document.getElementById('embedDimension')?.value || 4096, 10)
     };
     const milvusPath = document.getElementById('milvusLitePath')?.value?.trim() || '';
-    const milvusBackend = document.getElementById('milvusBackend')?.value || 'lite';
+    const sqliteVecPath = document.getElementById('sqliteVecPath')?.value?.trim() || '';
+    const milvusBackend = document.getElementById('milvusBackend')?.value || 'sqlite_vec';
     const milvusHost = document.getElementById('milvusHost')?.value?.trim() || 'localhost';
     const milvusPortRaw = parseInt(
         document.getElementById('milvusPort')?.value || '19530',
@@ -3370,6 +3377,7 @@ async function saveSettings() {
 
     const storagePayload = {
         milvus_lite_path: milvusPath,
+        sqlite_vec_path: sqliteVecPath,
         milvus_backend: milvusBackend,
         milvus_host: milvusHost,
         milvus_port: milvusPort,
@@ -3415,6 +3423,7 @@ async function saveSettings() {
             embedBaseUrl: embedding.base_url,
             embedDimension: embedding.dimension,
             milvusLitePath: milvusPath,
+            sqliteVecPath,
             milvusBackend,
             milvusHost,
             milvusPort,

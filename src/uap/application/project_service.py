@@ -23,7 +23,7 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 from uap.config import LLMConfig, UapConfig
-from uap.infrastructure.knowledge import ProjectKnowledgeService
+from uap.infrastructure.knowledge import create_project_knowledge_service
 from uap.infrastructure.llm import ModelExtractor
 from uap.infrastructure.llm.factory import create_llm_chat_client
 from uap.infrastructure.llm.langchain_chat_model import create_langchain_chat_model
@@ -86,7 +86,7 @@ class ProjectService:
         """
         self._store = store
         self._cfg = cfg
-        self._knowledge = ProjectKnowledgeService(cfg)
+        self._knowledge = create_project_knowledge_service(cfg)
         from uap.infrastructure.llm.model_extractor import ModelExtractor
 
         try:

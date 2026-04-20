@@ -1,4 +1,4 @@
-"""项目知识库（Milvus Lite）API。"""
+"""项目知识库（Milvus / SQLite 向量）API。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 
 from uap.interfaces.api._log import _LOG
+
+# 同因重复告警抑制（轮询 status 时避免刷屏）
+_last_kb_status_warn_sig: str | None = None
 
 
 class KnowledgeApiMixin:
@@ -24,8 +27,17 @@ class KnowledgeApiMixin:
             if not self._require_project(project_id):
                 return {"ok": False, "error": "项目不存在"}
             out = self.knowledge_service.status(project_id)
-            if isinstance(out, dict) and out.get("ok") is False and out.get("error"):
-                _LOG.warning("[KB] status unavailable: %s", out.get("error")[:200])
+            global _last_kb_status_warn_sig
+            if isinstance(out, dict) and out.get("ok") is not False and out.get("kb_available"):
+                _last_kb_status_warn_sig = None
+            elif isinstance(out, dict) and out.get("ok") is False and out.get("error"):
+                err = str(out.get("error") or "")
+                sig = err[:240]
+                if sig != _last_kb_status_warn_sig:
+                    _last_kb_status_warn_sig = sig
+                    _LOG.warning("[KB] status unavailable: %s", err[:400])
+                else:
+                    _LOG.debug("[KB] status unavailable (same reason): %s", err[:200])
             return out
         except Exception as e:
             _LOG.exception("[KB] status")

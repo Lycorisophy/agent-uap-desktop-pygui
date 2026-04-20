@@ -433,9 +433,14 @@
                             <div class="form-group">
                                 <label>Milvus 后端</label>
                                 <select id="milvusBackend">
+                                    <option value="sqlite_vec">本机 SQLite 向量（免 Milvus，推荐 Windows）</option>
                                     <option value="lite">本地 Milvus Lite（文件）</option>
                                     <option value="standalone">独立服务（Docker / 远程，如 19530）</option>
                                 </select>
+                            </div>
+                            <div class="form-group" id="milvusSqlitePathRow" style="display:none;">
+                                <label>SQLite 向量库路径（可选）</label>
+                                <input type="text" id="sqliteVecPath" placeholder="留空为 ~/.uap/kb_vec.sqlite">
                             </div>
                             <div class="form-group" id="milvusLitePathRow">
                                 <label>Milvus Lite 库路径（可选）</label>
